@@ -22,7 +22,6 @@ version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=pysam.Samfile, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-S', '--split_bam', type=pysam.Samfile, required=False, default=None, help='split-read bam file for sample')
-    parser.add_argument('-e', '--exclude', type=argparse.FileType('r'), default=None, help='BED file to exclude')
     parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('-z', '--z', type=float, required=False, default=3, help='z-score of inner-span to be considered discordant for pairs (default: 3)')
@@ -299,18 +298,13 @@ def bayes_gt(ref, alt):
 
     return (lp_homref, lp_het, lp_homalt)
 
-def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam, exclude_regions):
+def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam):
     conc_count =  0
     read_length = 100
     # discflank = 20
 
     fetch_left = pos - max_frag
     fetch_right = pos
-
-    exclude_olap = [e for e in exclude_regions if e.chrom == chrom and e.end > fetch_left and e.start < fetch_left]
-    # if debug:
-    #     print exclude_olap
-    #     print fetch_left, fetch_right
 
     discardcounter = 0
     keepcounter = 0
@@ -336,7 +330,7 @@ def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam, exclude_r
 
     return conc_count
 
-def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam, exclude_regions):
+def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
     disc_counter = 0
     read_length = 100
     # discflank = 20
@@ -417,7 +411,7 @@ def get_read_length(bam):
         
 
 # primary function
-def sv_genotype(vcf_file, exclude, bam, spl_bam, vcf_out, splflank, discflank, z, mean_ospan, sd_ospan, read_length, split_weight, disc_weight, booster, debug):
+def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_ospan, sd_ospan, read_length, split_weight, disc_weight, booster, debug):
 
     # sample insert size distribution
     if mean_ospan == None or sd_ospan == None:
@@ -431,14 +425,6 @@ def sv_genotype(vcf_file, exclude, bam, spl_bam, vcf_out, splflank, discflank, z
     in_header = True
     header = []
     vcf = Vcf()
-
-    # read the exclude file into memory
-    exclude_regions = []
-    for line in exclude:
-        v = line.rstrip().split('\t')
-        if len(v) >= 3:
-            exclude_regions.append(Bed(v))
-    exclude_regions.sort(key=lambda x: (x.chrom, x.start, x.end))
 
     # first get the sample name from the bam file
     sample = bam.header['RG'][0]['SM']
@@ -533,11 +519,11 @@ def sv_genotype(vcf_file, exclude, bam, spl_bam, vcf_out, splflank, discflank, z
         if len(spl_counter_b) > 0:
             var.set_info('END', int(spl_counter_b.most_common(1)[0][0]))
 
-        conc_counter_a = count_concordant(var.chrom, var.pos, 0, mean_ospan + sd_ospan * z, discflank, bam, exclude_regions)
-        disc_counter_a = count_discordant(var.chrom, var.pos, o1, o2, 0, mean_ospan + sd_ospan * z, discflank, bam, exclude_regions)
+        conc_counter_a = count_concordant(var.chrom, var.pos, 0, mean_ospan + sd_ospan * z, discflank, bam)
+        disc_counter_a = count_discordant(var.chrom, var.pos, o1, o2, 0, mean_ospan + sd_ospan * z, discflank, bam)
 
-        conc_counter_b = count_concordant(var.chrom, int(var.get_info('END')), 0, mean_ospan + sd_ospan * z, discflank, bam, exclude_regions)
-        disc_counter_b = count_discordant(var.chrom, int(var.get_info('END')), o2, o1, 0, mean_ospan + sd_ospan * z, discflank, bam, exclude_regions)
+        conc_counter_b = count_concordant(var.chrom, int(var.get_info('END')), 0, mean_ospan + sd_ospan * z, discflank, bam)
+        disc_counter_b = count_discordant(var.chrom, int(var.get_info('END')), o2, o1, 0, mean_ospan + sd_ospan * z, discflank, bam)
 
         # print var.genotype(sample).get_format('GT')
 
@@ -601,7 +587,7 @@ def main():
     args = get_args()
 
     # call primary function
-    sv_genotype(args.input_vcf, args.exclude, args.bam, args.split_bam, args.output_vcf, args.splflank, args.discflank, args.z, args.mean_frag_size, args.sd_frag_size, args.read_length, args.split_weight, args.disc_weight, args.booster, args.debug)
+    sv_genotype(args.input_vcf, args.bam, args.split_bam, args.output_vcf, args.splflank, args.discflank, args.z, args.mean_frag_size, args.sd_frag_size, args.read_length, args.split_weight, args.disc_weight, args.booster, args.debug)
 
     # close the files
     args.input_vcf.close()
