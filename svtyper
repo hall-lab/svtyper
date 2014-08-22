@@ -323,7 +323,7 @@ def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam):
             ispan = ispan2 - ispan1
             if ispan2 > pos and ispan < max_frag:
                 #print mate.aend - discflank
-                conc_count += 1-1/10**read.mapq
+                conc_count += 1-10**(-read.mapq/10.0)
                 #print mate
 
     # print 'keep: %s, discard: %s' % (keepcounter, discardcounter)
@@ -349,13 +349,13 @@ def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
                     ispan2 = mate.aend - discflank - 1
                     ispan = ispan2 - ispan1
                     if ispan > max_frag - 2*discflank:
-                        disc_counter += 1-1/10**read.mapq
+                        disc_counter += 1-10**(-read.mapq/10.0)
 
             # +/+ inversion
             elif o2 == '+':
                 if not read.mate_is_reverse:
                     # restrict this
-                    disc_counter += 1-1/10**read.mapq
+                    disc_counter += 1-10**(-read.mapq/10.0)
 
     if o1 == '-':
         for read in mybam.fetch(chrom, pos, pos + max_frag):
@@ -365,12 +365,12 @@ def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
             # -/+ tandem duplication
             elif o2 == '+':
                 if not read.mate_is_reverse:
-                    disc_counter += 1-1/10**read.mapq
+                    disc_counter += 1-10**(-read.mapq/10.0)
 
             # -/- inversion
             elif o2 == '-':
                 if read.mate_is_reverse:
-                    disc_counter += 1-1/10**read.mapq
+                    disc_counter += 1-10**(-read.mapq/10.0)
 
     return disc_counter
 
