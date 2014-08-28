@@ -26,8 +26,8 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('-z', '--z', type=float, required=False, default=3, help='z-score of inner-span to be considered discordant for pairs (default: 3)')
     parser.add_argument('-v', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
-    parser.add_argument('-m', '--mean_frag_size', type=float, required=False, help='mean fragment size of library [auto]')
-    parser.add_argument('-sd', '--sd_frag_size', type=float, required=False, help='standard deviation of fragment size of library [auto]')
+    parser.add_argument('-m', '--mean_frag_size', type=float, required=True, help='mean fragment size of library [auto]')
+    parser.add_argument('-sd', '--sd_frag_size', type=float, required=True, help='standard deviation of fragment size of library [auto]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant reads [1]')
     parser.add_argument('--booster', type=float, required=False, default=1.5, help='multiplier for weights with more than one type of support [1.5]')
@@ -298,9 +298,31 @@ def bayes_gt(ref, alt):
 
     return (lp_homref, lp_het, lp_homalt)
 
+# return the 5' alignment coordinate of the mate read by parsing the MC (mate cigar) SAM field
+def get_mate_5prime(bam, read):
+    if 'MC' in [t[0] for t in read.tags]:
+        p = read.pnext
+        mc = read.opt('MC') # the mate CIGAR string
+        if mc == '*':
+            return
+        keys = re.findall('[MIDNSHPX=]+', mc)
+        nums = map(int, re.findall('[^MIDNSHPX=]+', mc))
+
+        for i in xrange(len(keys)):
+            k = keys[i]
+            n = nums[i]
+            if k == 'M' or k == 'N' or k == 'D':
+                p += n
+            # if k == 'I' or k == 'P' or k == 'S' or k == 'H':
+            #     pass
+
+    else:
+        p = bam.mate(read).aend
+    return p
+
 def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam):
     conc_count =  0
-    read_length = 100
+    read_length = 101
     # discflank = 20
 
     fetch_left = pos - max_frag
@@ -332,7 +354,7 @@ def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam):
 
 def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
     disc_counter = 0
-    read_length = 100
+    read_length = 101
     # discflank = 20
     if o1 == '+':
         for read in mybam.fetch(chrom, pos - max_frag, pos):
@@ -412,7 +434,6 @@ def get_read_length(bam):
 
 # primary function
 def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_ospan, sd_ospan, read_length, split_weight, disc_weight, booster, debug):
-
     # sample insert size distribution
     if mean_ospan == None or sd_ospan == None:
         (mean_ospan, stdev_ospan) = insert_dist(bam)
@@ -466,6 +487,20 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
 
         fetch_left = var.pos - padding
         fetch_right = var.pos + padding + 1
+
+
+        # test cigar mate
+        for ref_read in bam.fetch(var.chrom, fetch_left, fetch_right):
+            if not ref_read.mate_is_unmapped:
+                print 'MC' in [t[0] for t in ref_read.tags]
+                print ref_read
+                print bam.mate(ref_read)
+                print get_mate_5prime(bam, ref_read)
+                print bam.mate(ref_read).aend
+            
+        pass
+
+            
 
         for ref_read in bam.fetch(var.chrom, fetch_left, fetch_right):
             # if debug:
