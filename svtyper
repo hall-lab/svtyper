@@ -331,7 +331,7 @@ def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam):
     discardcounter = 0
     keepcounter = 0
     for read in mybam.fetch(chrom, pos - max_frag, pos):
-        if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.mapq == 0 or read.pos + discflank > pos or read.pnext + read_length - discflank < pos:
+        if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos:
             discardcounter += 1
             # print 'discard', discardcounter
             continue
@@ -354,7 +354,7 @@ def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
     # discflank = 20
     if o1 == '+':
         for read in mybam.fetch(chrom, pos - max_frag, pos):
-            if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.mapq == 0 or read.pnext + read_length - discflank < pos:
+            if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank < pos:
                 continue
 
             # +/- deletion
@@ -376,7 +376,7 @@ def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
 
     if o1 == '-':
         for read in mybam.fetch(chrom, pos, pos + max_frag):
-            if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.mapq == 0 or read.pnext + read_length - discflank > pos:
+            if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank > pos:
                 continue
 
             # -/+ tandem duplication
@@ -486,21 +486,21 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
         for ref_read in bam.fetch(var.chrom, fetch_left, fetch_right):
             # if debug:
             #     print "%s\t%s" % (var.var_id, ref_read)
-            if not ref_read.is_duplicate and not ref_read.is_unmapped and ref_read.mapq > 0:
+            if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in range(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_a[p] += 1
+                        ref_counter_a[p] += 1-10**(-read.mapq/10.0)
 
         for spl_read in spl_bam.fetch(var.chrom, var.pos - padding, var.pos + padding + 1):
             # if debug:
             #     print "%s\t%s" % (var.var_id, spl_read)
-            if not spl_read.is_duplicate and not spl_read.is_unmapped and spl_read.mapq >0:
+            if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 # if debug:
                 #     print spl_read.pos + 1, spl_read.aend, spl_read
                 if o1 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
                     spl_counter_a[spl_read.aend] += 1
                 elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_a[spl_read.pos + 1] += 1
+                    spl_counter_a[spl_read.pos + 1] += 1-10**(-read.mapq/10.0)
 
         # check whether the lumpy base matches my base
         # vcf_out.write('%s\t' % var.pos)
@@ -514,19 +514,19 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
         for ref_read in bam.fetch(var.chrom, end - padding, end + padding + 1):
             # if debug:
             #     print "%s\t%s" % (var.var_id, ref_read)
-            if not ref_read.is_duplicate and not ref_read.is_unmapped and ref_read.mapq > 0:
+            if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in range(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_b[p] += 1
+                        ref_counter_b[p] += 1-10**(-read.mapq/10.0)
 
         for spl_read in spl_bam.fetch(var.chrom, end - padding, end + padding + 1):
             # if debug:
             #     print "%s\t%s" % (var.var_id, spl_read)
-            if not spl_read.is_duplicate and not spl_read.is_unmapped and ref_read.mapq > 0:
+            if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 if o2 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
                     spl_counter_b[spl_read.aend] += 1
                 elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_b[spl_read.pos + 1] += 1
+                    spl_counter_b[spl_read.pos + 1] += 1-10**(-read.mapq/10.0)
 
         if len(spl_counter_a) > 0:
             var.pos = spl_counter_a.most_common(1)[0][0]
