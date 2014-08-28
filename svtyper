@@ -489,7 +489,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in range(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_a[p] += 1-10**(-read.mapq/10.0)
+                        ref_counter_a[p] += 1-10**(-ref_read.mapq/10.0)
 
         for spl_read in spl_bam.fetch(var.chrom, var.pos - padding, var.pos + padding + 1):
             # if debug:
@@ -500,7 +500,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
                 if o1 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
                     spl_counter_a[spl_read.aend] += 1
                 elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_a[spl_read.pos + 1] += 1-10**(-read.mapq/10.0)
+                    spl_counter_a[spl_read.pos + 1] += 1-10**(-spl_read.mapq/10.0)
 
         # check whether the lumpy base matches my base
         # vcf_out.write('%s\t' % var.pos)
@@ -517,7 +517,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in range(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_b[p] += 1-10**(-read.mapq/10.0)
+                        ref_counter_b[p] += 1-10**(-ref_read.mapq/10.0)
 
         for spl_read in spl_bam.fetch(var.chrom, end - padding, end + padding + 1):
             # if debug:
@@ -526,7 +526,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
                 if o2 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
                     spl_counter_b[spl_read.aend] += 1
                 elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_b[spl_read.pos + 1] += 1-10**(-read.mapq/10.0)
+                    spl_counter_b[spl_read.pos + 1] += 1-10**(-spl_read.mapq/10.0)
 
         if len(spl_counter_a) > 0:
             var.pos = spl_counter_a.most_common(1)[0][0]
