@@ -300,7 +300,8 @@ def bayes_gt(ref, alt):
 
 # return the 5' alignment coordinate of the mate read by parsing the MC (mate cigar) SAM field
 def get_mate_5prime(bam, read):
-    if 'MC' in [t[0] for t in read.tags]:
+    # if 'MC' in [t[0] for t in read.tags]:
+    try:
         p = read.pnext
         mc = read.opt('MC') # the mate CIGAR string
         if mc == '*':
@@ -315,8 +316,7 @@ def get_mate_5prime(bam, read):
                 p += n
             # if k == 'I' or k == 'P' or k == 'S' or k == 'H':
             #     pass
-
-    else:
+    except KeyError:
         p = bam.mate(read).aend
     return p
 
@@ -338,15 +338,11 @@ def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam):
         else:
             keepcounter += 1
             # print 'keep', keepcounter
-            mate = mybam.mate(read)
-            # print 'found mate', mate
             ispan1 = read.pos + discflank
-            ispan2 = mate.aend - discflank - 1
+            ispan2 = get_mate_5prime(mybam, read)- discflank - 1
             ispan = ispan2 - ispan1
             if ispan2 > pos and ispan < max_frag:
-                #print mate.aend - discflank
                 conc_count += 1-10**(-read.mapq/10.0)
-                #print mate
 
     # print 'keep: %s, discard: %s' % (keepcounter, discardcounter)
 
@@ -366,9 +362,8 @@ def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
                 if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
                     continue
                 else:
-                    mate = mybam.mate(read)
                     ispan1 = read.pos + discflank
-                    ispan2 = mate.aend - discflank - 1
+                    ispan2 = get_mate_5prime(mybam, read) - discflank - 1
                     ispan = ispan2 - ispan1
                     if ispan > max_frag - 2*discflank:
                         disc_counter += 1-10**(-read.mapq/10.0)
@@ -487,20 +482,6 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
 
         fetch_left = var.pos - padding
         fetch_right = var.pos + padding + 1
-
-
-        # test cigar mate
-        for ref_read in bam.fetch(var.chrom, fetch_left, fetch_right):
-            if not ref_read.mate_is_unmapped:
-                print 'MC' in [t[0] for t in ref_read.tags]
-                print ref_read
-                print bam.mate(ref_read)
-                print get_mate_5prime(bam, ref_read)
-                print bam.mate(ref_read).aend
-            
-        pass
-
-            
 
         for ref_read in bam.fetch(var.chrom, fetch_left, fetch_right):
             # if debug:
