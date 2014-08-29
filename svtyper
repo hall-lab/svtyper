@@ -6,6 +6,7 @@ import math, time, re
 import multiprocessing
 from collections import Counter
 from argparse import RawTextHelpFormatter
+from scipy.stats import norm
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.1 $"
@@ -26,8 +27,8 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('-z', '--z', type=float, required=False, default=3, help='z-score of inner-span to be considered discordant for pairs (default: 3)')
     parser.add_argument('-v', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
-    parser.add_argument('-m', '--mean_frag_size', type=float, required=True, help='mean fragment size of library [auto]')
-    parser.add_argument('-sd', '--sd_frag_size', type=float, required=True, help='standard deviation of fragment size of library [auto]')
+    parser.add_argument('-m', '--mean_frag_size', type=float, required=False, help='mean fragment size of library [auto]')
+    parser.add_argument('-sd', '--sd_frag_size', type=float, required=False, help='standard deviation of fragment size of library [auto]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant reads [1]')
     parser.add_argument('--booster', type=float, required=False, default=1.5, help='multiplier for weights with more than one type of support [1.5]')
@@ -348,6 +349,89 @@ def count_concordant(chrom, pos, min_frag, max_frag, discflank, mybam):
 
     return conc_count
 
+# calculate the probability that a read is concordant at a deletion breakpoint,
+# given the putative deletion size and insert distribution of the library.
+def p_concordant(read_ospan, var_length, mean_ospan, sd_ospan):
+    conc_z = (read_ospan - mean_ospan) / sd_ospan
+    p = 1 - norm.cdf(conc_z)
+
+    disc_z = (read_ospan - var_length - mean_ospan) / sd_ospan
+    q = norm.cdf(disc_z)
+
+    if p + q == 0:
+        return 0
+    else:
+        return p / (p + q)
+
+def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank, mybam):
+    conc_counter = 0
+    disc_counter = 0
+    read_length = 101
+
+    discard_counter = 0
+    keep_counter = 0
+
+    # first see if the read is concordant
+    for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
+        if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos:
+            discard_counter += 1
+            # print 'discard', discardcounter
+            continue
+        else:
+            keep_counter += 1
+            # print 'keep', keepcounter
+            ospan = get_mate_5prime(mybam, read) - read.pos
+            prob_conc = p_concordant(ospan, end - pos, mean_ospan, sd_ospan)
+
+            ispan1 = read.pos + discflank
+            ispan2 = get_mate_5prime(mybam, read) - discflank - 1
+            ispan = ispan2 - ispan1
+
+            if ispan2 > pos:
+                conc_counter += prob_conc * 1-10**(-read.mapq/10.0)
+    # print 'keep: %s, discard: %s' % (keepcounter, discardcounter)
+
+    if o1 == '+':
+        for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
+            if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank < pos:
+                continue
+            # +/- deletion
+            elif o2 == '-':
+                if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
+                    continue
+                else:
+                    ospan = get_mate_5prime(mybam, read) - read.pos
+                    prob_conc = p_concordant(ospan, end - pos, mean_ospan, sd_ospan)
+
+                    ispan1 = read.pos + discflank
+                    ispan2 = get_mate_5prime(mybam, read) - discflank - 1
+                    ispan = ispan2 - ispan1
+
+                    disc_counter += (1 - prob_conc) * 1-10**(-read.mapq/10.0)
+            # +/+ inversion
+            elif o2 == '+':
+                if not read.mate_is_reverse:
+                    disc_counter += 1-10**(-read.mapq/10.0)
+    elif o1 == '-':
+        for read in mybam.fetch(chrom, pos, pos + max_frag):
+            if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank > pos:
+                continue
+
+            # -/+ tandem duplication
+            elif o2 == '+':
+                if not read.mate_is_reverse:
+                    disc_counter += 1-10**(-read.mapq/10.0)
+
+            # -/- inversion
+            elif o2 == '-':
+                if read.mate_is_reverse:
+                    disc_counter += 1-10**(-read.mapq/10.0)
+
+    return (conc_counter, disc_counter)
+
+        
+        
+
 def count_discordant(chrom, pos, o1, o2, min_frag, max_frag, discflank, mybam):
     disc_counter = 0
     read_length = 101
@@ -431,7 +515,7 @@ def get_read_length(bam):
 def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_ospan, sd_ospan, read_length, split_weight, disc_weight, booster, debug):
     # sample insert size distribution
     if mean_ospan == None or sd_ospan == None:
-        (mean_ospan, stdev_ospan) = insert_dist(bam)
+        (mean_ospan, sd_ospan) = insert_dist(bam)
 
     # get read length if not specified.
     if read_length == None:
@@ -535,8 +619,10 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
         if len(spl_counter_b) > 0:
             var.set_info('END', int(spl_counter_b.most_common(1)[0][0]))
 
-        conc_counter_a = count_concordant(var.chrom, var.pos, 0, mean_ospan + sd_ospan * z, discflank, bam)
-        disc_counter_a = count_discordant(var.chrom, var.pos, o1, o2, 0, mean_ospan + sd_ospan * z, discflank, bam)
+        (conc_counter_a, disc_counter_a) = count_pairedend(var.chrom, var.pos, int(var.get_info('END')), o1, o2, mean_ospan, sd_ospan, z, discflank, bam)
+
+        # conc_counter_a = count_concordant(var.chrom, var.pos, 0, mean_ospan + sd_ospan * z, discflank, bam)
+        # disc_counter_a = count_discordant(var.chrom, var.pos, o1, o2, 0, mean_ospan + sd_ospan * z, discflank, bam)
 
         conc_counter_b = count_concordant(var.chrom, int(var.get_info('END')), 0, mean_ospan + sd_ospan * z, discflank, bam)
         disc_counter_b = count_discordant(var.chrom, int(var.get_info('END')), o2, o1, 0, mean_ospan + sd_ospan * z, discflank, bam)
