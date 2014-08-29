@@ -302,13 +302,13 @@ def bayes_gt(ref, alt):
 def get_mate_5prime(bam, read):
     # if 'MC' in [t[0] for t in read.tags]:
     try:
-        p = read.pnext
         mc = read.opt('MC') # the mate CIGAR string
         if mc == '*':
             return
         keys = re.findall('[MIDNSHPX=]+', mc)
         nums = map(int, re.findall('[^MIDNSHPX=]+', mc))
 
+        p = read.pnext
         for i in xrange(len(keys)):
             k = keys[i]
             n = nums[i]
@@ -319,6 +319,16 @@ def get_mate_5prime(bam, read):
     except KeyError:
         p = bam.mate(read).aend
     return p
+
+def get_mate_mapq(bam, read):
+    # if 'MQ' in [t[0] for t in read.tags]:
+    try:
+        mq = read.opt('MQ') # the mate mapq score
+        if mq == '*':
+            return
+    except KeyError:
+        mq = bam.mate(read).mapq
+    return mq
 
 # calculate the probability that a read is concordant at a deletion breakpoint,
 # given the putative deletion size and insert distribution of the library.
@@ -343,11 +353,8 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
     if o1 == '+':
         # survey for concordant read pairs
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
-            # get the mate mapping quality if available, otherwise set to 60 (perfect mapping)
-            try:
-                mate_mapq = float(read.opt('MQ')) # mate mapping quality
-            except KeyError:
-                mate_mapq = 60.0
+            # get the mate mapping quality
+            mate_mapq = get_mate_mapq(mybam, read)
 
             if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos or read.tid != read.rnext:
                 continue
@@ -369,11 +376,8 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
         # survey for discordant pairs
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
-            # get the mate mapping quality if available, otherwise set to 60 (perfect mapping)
-            try:
-                mate_mapq = float(read.opt('MQ')) # mate mapping quality
-            except KeyError:
-                mate_mapq = 60.0
+            # get the mate mapping quality
+            mate_mapq = get_mate_mapq(mybam, read)
 
             if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank < pos:
                 continue
@@ -407,11 +411,8 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
     elif o1 == '-':
         # survey for concordant read pairs
         for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
-            # get the mate mapping quality if available, otherwise set to 60 (perfect mapping)
-            try:
-                mate_mapq = float(read.opt('MQ')) # mate mapping quality
-            except KeyError:
-                mate_mapq = 60.0
+            # get the mate mapping quality
+            mate_mapq = get_mate_mapq(mybam, read)
 
             if not read.is_reverse or read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos or read.tid != read.rnext:
                 continue
@@ -433,11 +434,8 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
         # survey for discordant read pairs
         for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
-            # get the mate mapping quality if available, otherwise set to 60 (perfect mapping)
-            try:
-                mate_mapq = float(read.opt('MQ')) # mate mapping quality
-            except KeyError:
-                mate_mapq = 60.0
+            # get the mate mapping quality
+            mate_mapq = get_mate_mapq(mybam, read)
 
             if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank > pos:
                 continue
