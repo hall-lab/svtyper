@@ -23,15 +23,15 @@ version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=pysam.Samfile, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-S', '--split_bam', type=pysam.Samfile, required=False, default=None, help='split-read bam file for sample')
-    parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
-    parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('-v', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
+    parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-m', '--mean_frag_size', type=float, required=False, help='mean fragment size of library [auto]')
     parser.add_argument('-sd', '--sd_frag_size', type=float, required=False, help='standard deviation of fragment size of library [auto]')
+    parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
+    parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-rl', '--read_length', type=int, required=False, help='maximum read-length in BAM [auto]')
-    parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
     # parse the arguments
@@ -287,7 +287,7 @@ def log_choose(n, k):
 
 # return the genotype and log10 p-value
 def bayes_gt(ref, alt):
-    # prob seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
+    # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
     p_alt = [0.1, 0.4, 0.9]
 
     total = ref + alt
@@ -334,14 +334,14 @@ def p_concordant(read_ospan, var_length, mean_ospan, sd_ospan):
     else:
         return p / (p + q)
 
-def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
+def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
     conc_counter = 0
     disc_counter = 0
 
     if o1 == '+':
         # survey for concordant read pairs
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
-            if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos:
+            if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos or read.tid != read.rnext:
                 continue
             else:
                 ospan = get_mate_5prime(mybam, read) - read.pos
@@ -358,8 +358,8 @@ def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank,
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
             if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank < pos:
                 continue
-            # +/- deletion
-            elif o2 == '-':
+            # +/- deletion 
+            elif o2 == '-' and chrom == mate_chrom:
                 if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
                     continue
                 else:
@@ -371,6 +371,12 @@ def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank,
                     ispan = ispan2 - ispan1
 
                     disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0))
+            # +/- translocation
+            elif o2 == '-' and chrom != mate_chrom:
+                if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
+                    continue
+                else:
+                    disc_counter += (1-10**(-read.mapq/10.0))
             # +/+ inversion
             elif o2 == '+':
                 if not read.mate_is_reverse:
@@ -454,9 +460,11 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
     if read_length == None:
         read_length = get_read_length(bam)
 
+    z = 3
     padding = 30
     in_header = True
     header = []
+    breakend_dict = {} # cache to hold unmatched generic breakends for genotyping
     vcf = Vcf()
 
     # first get the sample name from the bam file
@@ -482,87 +490,122 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
 
-        # don't try to genotype breakends
+        # genotype generic breakends
         if var.info['SVTYPE']=='BND':
-            vcf_out.write(var.get_var_string() + '\n')
-            continue
+            if var.info['MATEID'] in breakend_dict:
+                if 'PRIN' in breakend_dict[var.info['MATEID']].info:
+                    var2 = var
+                    var = breakend_dict[var.info['MATEID']]
+                    chromA = var.chrom
+                    chromB = var2.chrom
+                    posA = var.pos
+                    posB = var2.pos
 
-        o1, o2 =  list(var.info['STR'].split(',')[0].split(':')[0])
-        end = int(var.get_info('END'))
+                    # infer the strands from the alt allele
+                    if var.alt[-1] == '[' or var.alt[-1] == ']':
+                        o1 = '+'
+                    else: o1 = '-'
+                    if var2.alt[-1] == '[' or var2.alt[-1] == ']':
+                        o2 = '+'
+                    else: o2 = '-'
+                elif 'PRIN' in var.info:
+                    var2 = breakend_dict[var.info['MATEID']]
+                    chromA = var.chrom
+                    chromB = var2.chrom
+                    posA = var.pos
+                    posB = var2.pos
+                    
+                    # infer the strands from the alt allele
+                    if var.alt[-1] == '[' or var.alt[-1] == ']':
+                        o1 = '+'
+                    else: o1 = '-'
+                    if var2.alt[-1] == '[' or var2.alt[-1] == ']':
+                        o2 = '+'
+                    else: o2 = '-'
+            else:
+                breakend_dict[var.var_id] = var
+                continue
+
+            # write out and skip
+            # vcf_out.write(var.get_var_string() + '\n')
+            # continue
+        else:
+            chromA = var.chrom
+            chromB = var.chrom
+            posA = var.pos
+            posB = int(var.get_info('END'))
+            o1, o2 =  list(var.get_info('STR').split(',')[0].split(':')[0])
 
         '''
         Breakend A
         '''
+        # Count splitters
         ref_counter_a = Counter()
         spl_counter_a = Counter()
-
-        fetch_left = var.pos - padding
-        fetch_right = var.pos + padding + 1
-
-        for ref_read in bam.fetch(var.chrom, fetch_left, fetch_right):
+        for ref_read in bam.fetch(chromA, posA - padding, posA + padding + 1):
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                for p in range(ref_read.pos + 1, ref_read.aend + 1):
+                for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                         ref_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
-
-        for spl_read in spl_bam.fetch(var.chrom, var.pos - padding, var.pos + padding + 1):
+        for spl_read in spl_bam.fetch(chromA, posA - padding, posA + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                if o1 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
+                if o1 == '+' and spl_read.cigar[0][0] == 0:
                     spl_counter_a[spl_read.aend] += 1
                 elif o1 == '-' and spl_read.cigar[-1][0] == 0:
                     spl_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
+        # Count paired-end discordant and concordants
+        (conc_counter_a, disc_counter_a) = count_pairedend(chromA, chromB, posA, posB, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+
         '''
         Breakend B
         '''
+        # Count splitters
         ref_counter_b = Counter()
         spl_counter_b = Counter()
-
-        for ref_read in bam.fetch(var.chrom, end - padding, end + padding + 1):
+        for ref_read in bam.fetch(chromB, posB - padding, posB + padding + 1):
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in range(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                         ref_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
-
-        for spl_read in spl_bam.fetch(var.chrom, end - padding, end + padding + 1):
+        for spl_read in spl_bam.fetch(chromB, posB - padding, posB + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                if o2 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
+                if o2 == '+' and spl_read.cigar[0][0] == 0:
                     spl_counter_b[spl_read.aend] += 1
                 elif o2 == '-' and spl_read.cigar[-1][0] == 0:
                     spl_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
-        (conc_counter_a, disc_counter_a) = count_pairedend(var.chrom, var.pos, int(var.get_info('END')), o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
-        (conc_counter_b, disc_counter_b) = count_pairedend(var.chrom, var.pos, int(var.get_info('END')), o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        # Count paired-end discordants and concordants
+        (conc_counter_b, disc_counter_b) = count_pairedend(chromB, chromA, var.pos, posB, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
 
         if debug:
+            print 'sr_a', ref_counter_a[posA], spl_counter_a[posA]
             print 'pe_a', conc_counter_a, disc_counter_a
+            print 'sr_b', ref_counter_b[posB], spl_counter_b[posB]
             print 'pe_b', conc_counter_b, disc_counter_b
-            print 'sr_a', ref_counter_a[var.pos], spl_counter_a[var.pos]
-            print 'sr_b', ref_counter_b[var.get_info('END')], spl_counter_b[var.get_info('END')]
 
+
+        # if there are informative reads at the site, output inferred genotype
         if len(spl_counter_a) + len(spl_counter_b) + disc_counter_a + disc_counter_b > 0:
-
-            split_ref = int(split_weight * (ref_counter_a[var.pos] + ref_counter_b[var.get_info('END')]))
-            split_alt = int(split_weight * (spl_counter_a[var.pos] + spl_counter_b[var.get_info('END')]))
-
+            split_ref = int(split_weight * (ref_counter_a[posA] + ref_counter_b[posB]))
+            split_alt = int(split_weight * (spl_counter_a[posA] + spl_counter_b[posB]))
             disc_ref = int(disc_weight * (conc_counter_a + conc_counter_b))
             disc_alt = int(disc_weight * (disc_counter_a + disc_counter_b))
 
+            # get bayesian classifier
             gt_lplist = bayes_gt(split_ref + disc_ref, split_alt + disc_alt)
             gt_idx = gt_lplist.index(max(gt_lplist[1:]))
 
+            # print log probabilities of homref, het, homalt
             if debug:
                 print gt_lplist
 
-            try:
-                var.qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
-            except OverflowError:
-                var.qual = 0
-
+            # set the overall variant QUAL score and sample specific fields
+            var.qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
             var.genotype(sample).set_format('GQ', -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist)))
-            var.genotype(sample).set_format('DP', spl_counter_a[var.pos] + ref_counter_a[var.pos] + spl_counter_b[var.get_info('END')] + ref_counter_b[var.get_info('END')] + conc_counter_a + disc_counter_a + conc_counter_b + disc_counter_b)
-            var.genotype(sample).set_format('AO', spl_counter_a[var.pos] + spl_counter_b[var.get_info('END')] + disc_counter_a + disc_counter_b)
-            var.genotype(sample).set_format('RO', ref_counter_a[var.pos] + ref_counter_b[var.get_info('END')] + conc_counter_a + conc_counter_b)
+            var.genotype(sample).set_format('DP', spl_counter_a[posA] + ref_counter_a[posA] + spl_counter_b[posB] + ref_counter_b[posB] + conc_counter_a + disc_counter_a + conc_counter_b + disc_counter_b)
+            var.genotype(sample).set_format('AO', spl_counter_a[posA] + spl_counter_b[posB] + disc_counter_a + disc_counter_b)
+            var.genotype(sample).set_format('RO', ref_counter_a[posA] + ref_counter_b[posB] + conc_counter_a + conc_counter_b)
 
             # don't genotype if LUMPY call is reference
             if var.genotype(sample).get_format('GT') == '0/0':
@@ -577,6 +620,11 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             var.qual = 0
 
         vcf_out.write(var.get_var_string() + '\n')
+        if var.info['SVTYPE'] == 'BND':
+            var2.qual = var.qual
+            var2.active_formats = var.active_formats
+            var2.genotype = var.genotype
+            vcf_out.write(var2.get_var_string() + '\n')
     vcf_out.close()
     
     return
