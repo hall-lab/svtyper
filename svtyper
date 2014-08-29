@@ -334,7 +334,7 @@ def p_concordant(read_ospan, var_length, mean_ospan, sd_ospan):
     else:
         return p / (p + q)
 
-def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
+def count_pairedend(chrom, pos, mate_chrom, end, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
     conc_counter = 0
     disc_counter = 0
 
@@ -555,7 +555,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                     spl_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordant and concordants
-        (conc_counter_a, disc_counter_a) = count_pairedend(chromA, chromB, posA, posB, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_a, disc_counter_a) = count_pairedend(chromA, posA, chromB, posB, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
 
         '''
         Breakend B
@@ -576,7 +576,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                     spl_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordants and concordants
-        (conc_counter_b, disc_counter_b) = count_pairedend(chromB, chromA, var.pos, posB, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_b, disc_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
 
         if debug:
             print 'sr_a', ref_counter_a[posA], spl_counter_a[posA]
