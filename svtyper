@@ -334,7 +334,7 @@ def p_concordant(read_ospan, var_length, mean_ospan, sd_ospan):
     else:
         return p / (p + q)
 
-def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
+def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
     conc_counter = 0
     disc_counter = 0
 
@@ -345,7 +345,7 @@ def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z
                 continue
             else:
                 ospan = get_mate_5prime(mybam, read) - read.pos
-                prob_conc = p_concordant(ospan, end - pos, mean_ospan, sd_ospan)
+                prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
 
                 ispan1 = read.pos + discflank
                 ispan2 = get_mate_5prime(mybam, read) - discflank - 1
@@ -364,7 +364,7 @@ def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z
                     continue
                 else:
                     ospan = get_mate_5prime(mybam, read) - read.pos
-                    prob_conc = p_concordant(ospan, end - pos, mean_ospan, sd_ospan)
+                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
 
                     ispan1 = read.pos + discflank
                     ispan2 = get_mate_5prime(mybam, read) - discflank - 1
@@ -384,17 +384,17 @@ def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z
     elif o1 == '-':
         # survey for concordant read pairs
         for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
-            if not read.is_reverse or read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos:
+            if not read.is_reverse or read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos or read.tid != read.rnext:
                 continue
             else:
                 ospan = read.aend - read.pnext
-                prob_conc = p_concordant(ospan, end - pos, mean_ospan, sd_ospan)
+                prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
 
                 ispan1 = read.pnext + discflank
                 ispan2 = read.aend - discflank - 1
                 ispan = ispan2 - ispan1
 
-                if ispan1 < end:
+                if ispan1 < mate_pos:
                     conc_counter += prob_conc * (1-10**(-read.mapq/10.0))
 
         # survey for discordant read pairs
@@ -550,12 +550,12 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         for spl_read in spl_bam.fetch(chromA, posA - padding, posA + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 if o1 == '+' and spl_read.cigar[0][0] == 0:
-                    spl_counter_a[spl_read.aend] += 1
+                    spl_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
                 elif o1 == '-' and spl_read.cigar[-1][0] == 0:
                     spl_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordant and concordants
-        (conc_counter_a, disc_counter_a) = count_pairedend(chromA, chromB, posA, posB, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_a, disc_counter_a) = count_pairedend(chromA, posA, chromB, posB, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
 
         '''
         Breakend B
@@ -571,12 +571,12 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         for spl_read in spl_bam.fetch(chromB, posB - padding, posB + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 if o2 == '+' and spl_read.cigar[0][0] == 0:
-                    spl_counter_b[spl_read.aend] += 1
+                    spl_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
                 elif o2 == '-' and spl_read.cigar[-1][0] == 0:
                     spl_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordants and concordants
-        (conc_counter_b, disc_counter_b) = count_pairedend(chromB, chromA, var.pos, posB, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_b, disc_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
 
         if debug:
             print 'sr_a', ref_counter_a[posA], spl_counter_a[posA]
