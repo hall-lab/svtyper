@@ -341,7 +341,7 @@ def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z
     if o1 == '+':
         # survey for concordant read pairs
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
-            if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos or read.tid != read.rnext:
+            if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos: # or read.tid != read.rnext:
                 continue
             else:
                 ospan = get_mate_5prime(mybam, read) - read.pos
