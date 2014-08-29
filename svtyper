@@ -396,24 +396,14 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
                 if ispan1 < pos:
                     conc_counter += prob_conc * (1-10**(-read.mapq/10.0))
+                    if chrom == mate_chrom and mate_pos < pos:
+                        disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0))
+                        continue
 
         # survey for discordant read pairs
         for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
             if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank > pos:
                 continue
-            # +/- deletion (approaching from the right side)
-            elif o2 == '+' and chrom == mate_chrom:
-                if read.mate_is_reverse or read.pnext + discflank < pos:
-                    continue
-                else:
-                    ospan = read.aend - read.pnext
-                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
-
-                    ispan1 = read.pnext + discflank
-                    ispan2 = read.aend - discflank - 1
-                    ispan = ispan2 - ispan1
-
-                    disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0))
 
             # -/+ tandem duplication
             elif o2 == '+':
