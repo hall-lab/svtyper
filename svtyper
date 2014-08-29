@@ -337,6 +337,8 @@ def p_concordant(read_ospan, var_length, mean_ospan, sd_ospan):
 def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
     conc_counter = 0
     disc_counter = 0
+    conc_scaled_counter = 0
+    disc_scaled_counter = 0
 
     if o1 == '+':
         # survey for concordant read pairs
@@ -358,9 +360,11 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
                 ispan = ispan2 - ispan1
 
                 if ispan2 > pos:
-                    conc_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    conc_counter += 1
+                    conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if o2 == '-' and chrom == mate_chrom and pos < mate_pos:
-                        disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                        disc_counter += 1
+                        disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                         continue
 
         # survey for discordant pairs
@@ -386,17 +390,20 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
                     ispan2 = get_mate_5prime(mybam, read) - discflank - 1
                     ispan = ispan2 - ispan1
 
-                    disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    disc_counter += 1
+                    disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
             # +/- translocation
             elif o2 == '-' and chrom != mate_chrom:
                 if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
                     continue
                 else:
-                    disc_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    disc_counter += 1
+                    disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
             # +/+ inversion
             elif o2 == '+':
                 if not read.mate_is_reverse:
-                    disc_counter += 1-10**(-read.mapq/10.0) * (1-10**(-mate_mapq/10.0))
+                    disc_counter += 1
+                    disc_scaled_counter += 1-10**(-read.mapq/10.0) * (1-10**(-mate_mapq/10.0))
     elif o1 == '-':
         # survey for concordant read pairs
         for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
@@ -417,9 +424,11 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
                 ispan = ispan2 - ispan1
 
                 if ispan1 < pos:
-                    conc_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    conc_counter += 1
+                    conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if o2 == '+' and chrom == mate_chrom and mate_pos < pos:
-                        disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                        disc_counter += 1
+                        disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                         continue
 
         # survey for discordant read pairs
@@ -436,14 +445,16 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
             # -/+ tandem duplication (or interchromosomal)
             elif o2 == '+':
                 if not read.mate_is_reverse and not (chrom == mate_chrom and mate_pos < pos):
-                    disc_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    disc_counter += 1
+                    disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
             # -/- inversion
             elif o2 == '-':
                 if read.mate_is_reverse:
-                    disc_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    disc_counter += 1
+                    disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
-    return (conc_counter, disc_counter)
+    return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
 
 def insert_dist(bam):
     num_samp = 1000000
@@ -576,20 +587,26 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         # Count splitters
         ref_counter_a = Counter()
         spl_counter_a = Counter()
+        ref_scaled_counter_a = Counter()
+        spl_scaled_counter_a = Counter()
+
         for ref_read in bam.fetch(chromA, posA - padding, posA + padding + 1):
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
+                        ref_counter_a[p] += 1
+                        ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
         for spl_read in spl_bam.fetch(chromA, posA - padding, posA + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 if o1 == '+' and spl_read.cigar[0][0] == 0:
-                    spl_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
+                    spl_counter_a[spl_read.aend] += 1
+                    spl_scaled_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
                 elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
+                    spl_counter_a[spl_read.pos + 1] += 1
+                    spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordant and concordants
-        (conc_counter_a, disc_counter_a) = count_pairedend(chromA, posA, chromB, posB, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_a, disc_counter_a, conc_scaled_counter_a, disc_scaled_counter_a) = count_pairedend(chromA, posA, chromB, posB, o1, o2, mean_ospan, sd_ospan, z, discflank, read_length, bam)
 
         '''
         Breakend B
@@ -597,37 +614,52 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         # Count splitters
         ref_counter_b = Counter()
         spl_counter_b = Counter()
+        ref_scaled_counter_b = Counter()
+        spl_scaled_counter_b = Counter()
+
         for ref_read in bam.fetch(chromB, posB - padding, posB + padding + 1):
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
+                        ref_counter_b[p] += 1
+                        ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
         for spl_read in spl_bam.fetch(chromB, posB - padding, posB + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 if o2 == '+' and spl_read.cigar[0][0] == 0:
-                    spl_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
+                    spl_counter_b[spl_read.aend] += 1
+                    spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
                 elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_b[spl_read.pos] += (1-10**(-spl_read.mapq/10.0))
+                    spl_counter_b[spl_read.pos] += 1
+                    spl_scaled_counter_b[spl_read.pos] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordants and concordants
-        (conc_counter_b, disc_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_b, disc_counter_b, conc_scaled_counter_b, disc_scaled_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
 
         if debug:
             print 'sr_a', ref_counter_a[posA], spl_counter_a[posA]
             print 'pe_a', conc_counter_a, disc_counter_a
             print 'sr_b', ref_counter_b[posB], spl_counter_b[posB]
             print 'pe_b', conc_counter_b, disc_counter_b
+            print 'sr_a_scaled', ref_scaled_counter_a[posA], spl_scaled_counter_a[posA]
+            print 'pe_a_scaled', conc_scaled_counter_a, disc_scaled_counter_a
+            print 'sr_b_scaled', ref_scaled_counter_b[posB], spl_scaled_counter_b[posB]
+            print 'pe_b_scaled', conc_scaled_counter_b, disc_scaled_counter_b
 
 
         # if there are informative reads at the site, output inferred genotype
-        if len(spl_counter_a) + len(spl_counter_b) + disc_counter_a + disc_counter_b > 0:
-            split_ref = int(split_weight * (ref_counter_a[posA] + ref_counter_b[posB]))
-            split_alt = int(split_weight * (spl_counter_a[posA] + spl_counter_b[posB]))
-            disc_ref = int(disc_weight * (conc_counter_a + conc_counter_b))
-            disc_alt = int(disc_weight * (disc_counter_a + disc_counter_b))
+        if len(spl_scaled_counter_a) + len(spl_scaled_counter_b) + disc_scaled_counter_a + disc_scaled_counter_b > 0:
+            split_ref = ref_counter_a[posA] + ref_counter_b[posB]
+            split_alt = spl_counter_a[posA] + spl_counter_b[posB]
+            disc_ref = conc_counter_a + conc_counter_b
+            disc_alt = disc_counter_a + disc_counter_b
+
+            split_scaled_ref = ref_scaled_counter_a[posA] + ref_scaled_counter_b[posB]
+            split_scaled_alt = spl_scaled_counter_a[posA] + spl_scaled_counter_b[posB]
+            disc_scaled_ref = conc_scaled_counter_a + conc_scaled_counter_b
+            disc_scaled_alt = disc_scaled_counter_a + disc_scaled_counter_b
 
             # get bayesian classifier
-            gt_lplist = bayes_gt(split_ref + disc_ref, split_alt + disc_alt)
+            gt_lplist = bayes_gt(int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref), int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt))
             gt_idx = gt_lplist.index(max(gt_lplist[1:]))
 
             # print log probabilities of homref, het, homalt
@@ -637,9 +669,10 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             # set the overall variant QUAL score and sample specific fields
             var.qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
             var.genotype(sample).set_format('GQ', -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist)))
-            var.genotype(sample).set_format('DP', spl_counter_a[posA] + ref_counter_a[posA] + spl_counter_b[posB] + ref_counter_b[posB] + conc_counter_a + disc_counter_a + conc_counter_b + disc_counter_b)
-            var.genotype(sample).set_format('AO', spl_counter_a[posA] + spl_counter_b[posB] + disc_counter_a + disc_counter_b)
-            var.genotype(sample).set_format('RO', ref_counter_a[posA] + ref_counter_b[posB] + conc_counter_a + conc_counter_b)
+            var.genotype(sample).set_format('DP', split_ref + split_alt + disc_ref + disc_alt)
+
+            var.genotype(sample).set_format('AO', split_alt + disc_alt)
+            var.genotype(sample).set_format('RO', split_ref + disc_ref)
 
             # don't genotype if LUMPY call is reference
             if var.genotype(sample).get_format('GT') == '0/0':
