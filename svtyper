@@ -359,7 +359,7 @@ def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z
             if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank < pos:
                 continue
             # +/- deletion 
-            elif o2 == '-' and chrom == mate_chrom:
+            elif o2 == '-': # and chrom == mate_chrom:
                 if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
                     continue
                 else:
@@ -371,12 +371,12 @@ def count_pairedend(chrom, mate_chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z
                     ispan = ispan2 - ispan1
 
                     disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0))
-            # +/- translocation
-            elif o2 == '-' and chrom != mate_chrom:
-                if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
-                    continue
-                else:
-                    disc_counter += (1-10**(-read.mapq/10.0))
+            # # +/- translocation
+            # elif o2 == '-' and chrom != mate_chrom:
+            #     if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
+            #         continue
+            #     else:
+            #         disc_counter += (1-10**(-read.mapq/10.0))
             # +/+ inversion
             elif o2 == '+':
                 if not read.mate_is_reverse:
