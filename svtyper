@@ -573,10 +573,10 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 if o2 == '+' and spl_read.cigar[0][0] == 0:
                     spl_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
                 elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                    if debug:
-                        print spl_read.pos, posB, spl_read.mapq
+                    # if debug:
+                    #     print spl_read.pos, posB, spl_read.mapq
                     # CHECK FOR A 1-OFF ERROR HERE!!!!
-                    spl_counter_b[spl_read.pos + 2] += (1-10**(-spl_read.mapq/10.0))
+                    spl_counter_b[spl_read.pos] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordants and concordants
         (conc_counter_b, disc_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, mean_ospan, sd_ospan, z, discflank, read_length, bam)
