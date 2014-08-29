@@ -52,7 +52,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
 class Vcf(object):
     def __init__(self):
         self.file_format = 'VCFv4.2'
-        #self.fasta = fasta
+        # self.fasta = fasta
         self.reference = ''
         self.sample_list = []
         self.info_list = []
@@ -362,7 +362,7 @@ def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank,
                 ispan = ispan2 - ispan1
 
                 if ispan2 > pos:
-                    conc_counter += prob_conc * 1-10**(-read.mapq/10.0)
+                    conc_counter += prob_conc * (1-10**(-read.mapq/10.0))
         # print 'keep: %s, discard: %s' % (keepcounter, discardcounter)
 
         # survey for discordant pairs
@@ -381,7 +381,7 @@ def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank,
                     ispan2 = get_mate_5prime(mybam, read) - discflank - 1
                     ispan = ispan2 - ispan1
 
-                    disc_counter += (1 - prob_conc) * 1-10**(-read.mapq/10.0)
+                    disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0))
             # +/+ inversion
             elif o2 == '+':
                 if not read.mate_is_reverse:
@@ -404,7 +404,7 @@ def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank,
                 ispan = ispan2 - ispan1
 
                 if ispan1 < end:
-                    conc_counter += prob_conc * 1-10**(-read.mapq/10.0)
+                    conc_counter += prob_conc * (1-10**(-read.mapq/10.0))
         # print 'keep: %s, discard: %s' % (keepcounter, discardcounter)
 
         # survey for discordant read pairs
@@ -415,12 +415,12 @@ def count_pairedend(chrom, pos, end, o1, o2, mean_ospan, sd_ospan, z, discflank,
             # -/+ tandem duplication
             elif o2 == '+':
                 if not read.mate_is_reverse:
-                    disc_counter += 1-10**(-read.mapq/10.0)
+                    disc_counter += (1-10**(-read.mapq/10.0))
 
             # -/- inversion
             elif o2 == '-':
                 if read.mate_is_reverse:
-                    disc_counter += 1-10**(-read.mapq/10.0)
+                    disc_counter += (1-10**(-read.mapq/10.0))
 
     return (conc_counter, disc_counter)
 
@@ -522,7 +522,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in range(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_a[p] += 1-10**(-ref_read.mapq/10.0)
+                        ref_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
 
         for spl_read in spl_bam.fetch(var.chrom, var.pos - padding, var.pos + padding + 1):
             # if debug:
@@ -533,10 +533,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
                 if o1 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
                     spl_counter_a[spl_read.aend] += 1
                 elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_a[spl_read.pos + 1] += 1-10**(-spl_read.mapq/10.0)
-
-        # check whether the lumpy base matches my base
-        # vcf_out.write('%s\t' % var.pos)
+                    spl_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         '''
         Breakend B
@@ -550,7 +547,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in range(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_b[p] += 1-10**(-ref_read.mapq/10.0)
+                        ref_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
 
         for spl_read in spl_bam.fetch(var.chrom, end - padding, end + padding + 1):
             # if debug:
@@ -559,13 +556,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
                 if o2 == '+' and spl_read.cigar[0][0] == 0: # and split_read.pnext > startB - readlength:
                     spl_counter_b[spl_read.aend] += 1
                 elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                    spl_counter_b[spl_read.pos + 1] += 1-10**(-spl_read.mapq/10.0)
-
-        # set the breakpoint as the most common split point
-        if len(spl_counter_a) > 0:
-            var.pos = spl_counter_a.most_common(1)[0][0]
-        if len(spl_counter_b) > 0:
-            var.set_info('END', int(spl_counter_b.most_common(1)[0][0]))
+                    spl_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         (conc_counter_a, disc_counter_a) = count_pairedend(var.chrom, var.pos, int(var.get_info('END')), o1, o2, mean_ospan, sd_ospan, z, discflank, bam)
         (conc_counter_b, disc_counter_b) = count_pairedend(var.chrom, var.pos, int(var.get_info('END')), o2, o1, mean_ospan, sd_ospan, z, discflank, bam)
@@ -597,8 +588,10 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, z, mean_os
             if debug:
                 print gt_lplist
 
-            #var.qual = phred(gt_plist[0]/sum(gt_plist))
-            var.qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
+            try:
+                var.qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
+            except OverflowError:
+                var.qual = 0
 
             var.genotype(sample).set_format('GQ', -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist)))
             var.genotype(sample).set_format('DP', spl_counter_a[var.pos] + ref_counter_a[var.pos] + spl_counter_b[var.get_info('END')] + ref_counter_b[var.get_info('END')] + conc_counter_a + disc_counter_a + conc_counter_b + disc_counter_b)
