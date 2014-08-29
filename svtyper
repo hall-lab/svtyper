@@ -359,6 +359,9 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
                 if ispan2 > pos:
                     conc_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    if o2 == '-' and chrom == mate_chrom and pos < mate_pos:
+                        disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                        continue
 
         # survey for discordant pairs
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
@@ -371,8 +374,8 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
             if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank < pos:
                 continue
 
-            # +/- deletion 
-            elif o2 == '-' and chrom == mate_chrom:
+            # +/-  
+            elif o2 == '-':
                 if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
                     continue
                 else:
@@ -416,7 +419,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
                 if ispan1 < pos:
                     conc_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if chrom == mate_chrom and mate_pos < pos:
+                    if o2 == '+' and chrom == mate_chrom and mate_pos < pos:
                         disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                         continue
 
@@ -431,7 +434,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
             if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank > pos:
                 continue
 
-            # -/+ tandem duplication
+            # -/+ tandem duplication (or interchromosomal)
             elif o2 == '+':
                 if not read.mate_is_reverse:
                     disc_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
