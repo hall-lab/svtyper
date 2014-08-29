@@ -288,7 +288,7 @@ def log_choose(n, k):
 # return the genotype and log10 p-value
 def bayes_gt(ref, alt):
     # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
-    p_alt = [0.1, 0.45, 0.9]
+    p_alt = [0.1, 0.4, 0.8]
 
     total = ref + alt
     
