@@ -358,8 +358,6 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
                 ispan = ispan2 - ispan1
 
                 if ispan2 > pos:
-                    print read
-                    print prob_conc
                     conc_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
         # survey for discordant pairs
