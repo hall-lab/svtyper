@@ -359,9 +359,9 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
                 if ispan2 > pos:
                     conc_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if o2 == '-' and chrom == mate_chrom and pos < mate_pos:
-                        disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                        continue
+                    # if o2 == '-' and chrom == mate_chrom and pos < mate_pos:
+                    #     disc_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    #     continue
 
         # survey for discordant pairs
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
@@ -376,7 +376,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
             # +/-  
             elif o2 == '-':
-                if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
+                if not read.mate_is_reverse:
                     continue
                 else:
                     ospan = get_mate_5prime(mybam, read) - read.pos
