@@ -442,7 +442,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
             # -/- inversion
             elif o2 == '-':
-                if read.mate_is_reverse not read.mate_is_unmapped:
+                if read.mate_is_reverse and not read.mate_is_unmapped:
                     disc_counter += 1
                     disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
