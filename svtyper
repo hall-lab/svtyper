@@ -661,10 +661,10 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             # set the overall variant QUAL score and sample specific fields
             var.qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
             var.genotype(sample).set_format('GQ', -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist)))
-            var.genotype(sample).set_format('DP', split_ref + split_alt + disc_ref + disc_alt)
+            var.genotype(sample).set_format('DP', split_scaled_ref + split_scaled_alt + disc_scaled_ref + disc_scaled_alt)
 
-            var.genotype(sample).set_format('AO', split_alt + disc_alt)
-            var.genotype(sample).set_format('RO', split_ref + disc_ref)
+            var.genotype(sample).set_format('AO', split_scaled_alt + disc_scaled_alt)
+            var.genotype(sample).set_format('RO', split_scaled_ref + disc_scaled_ref)
 
             # don't genotype if LUMPY call is reference
             if var.genotype(sample).get_format('GT') == '0/0':
