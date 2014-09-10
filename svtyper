@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 
 import pysam
 import argparse, sys
@@ -654,11 +654,11 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             else: disc_ref = 0
 
             split_scaled_alt = spl_scaled_counter_a[posA] + spl_scaled_counter_b[posB]
-            if split_scaled_alt > 0:
+            if int(split_scaled_alt) > 0:
                 split_scaled_ref = ref_scaled_counter_a[posA] + ref_scaled_counter_b[posB]
             else: split_scaled_ref = 0
             disc_scaled_alt = disc_scaled_counter_a + disc_scaled_counter_b
-            if disc_scaled_alt > 0:
+            if int(disc_scaled_alt) > 0:
                 disc_scaled_ref = conc_scaled_counter_a + conc_scaled_counter_b
             else:
                 disc_scaled_ref = 0
@@ -693,6 +693,14 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         else:
             var.genotype(sample).set_format('GT', './.')
             var.qual = 0
+            var.genotype(sample).set_format('GQ', 0)
+            var.genotype(sample).set_format('DP', 0)
+            var.genotype(sample).set_format('AO', 0)
+            var.genotype(sample).set_format('RO', 0)
+            var.genotype(sample).set_format('AS', 0)
+            var.genotype(sample).set_format('RS', 0)
+            var.genotype(sample).set_format('AP', 0)
+            var.genotype(sample).set_format('RP', 0)
 
         vcf_out.write(var.get_var_string() + '\n')
         if var.info['SVTYPE'] == 'BND':
