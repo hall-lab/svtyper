@@ -22,7 +22,7 @@ author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=pysam.Samfile, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
-    parser.add_argument('-S', '--split_bam', type=pysam.Samfile, required=False, default=None, help='split-read bam file for sample')
+    parser.add_argument('-S', '--split_bam', type=pysam.Samfile, required=True, help='split-read bam file for sample')
     parser.add_argument('-v', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-m', '--mean_frag_size', type=float, required=False, help='mean fragment size of library [auto]')
@@ -483,7 +483,6 @@ def get_read_length(bam):
         counter += 1
     return max_rl
         
-
 # primary function
 def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan, sd_ospan, read_length, split_weight, disc_weight, debug):
     # sample insert size distribution
@@ -523,6 +522,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
                 vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
                 vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
+                vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
                 vcf_out.write(vcf.get_header() + '\n')
 
         v = line.rstrip().split('\t')
@@ -672,8 +672,8 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 print gt_lplist
 
             # set the overall variant QUAL score and sample specific fields
-            var.qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
-            var.genotype(sample).set_format('GQ', -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist)))
+            var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - sum(10**x for x in gt_lplist[:gt_idx] + gt_lplist[:gt_idx+1])))
+            var.genotype(sample).set_format('GL', ','.join(['%.0f' % x for x in gt_lplist]))
             var.genotype(sample).set_format('DP', int(split_scaled_ref + split_scaled_alt + disc_scaled_ref + disc_scaled_alt))
             var.genotype(sample).set_format('AO', int(split_scaled_alt + disc_scaled_alt))
             var.genotype(sample).set_format('RO', int(split_scaled_ref + disc_scaled_ref))
@@ -684,8 +684,12 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
 
             # don't genotype if LUMPY call is reference
             if var.genotype(sample).get_format('GT') == '0/0':
+                gt_idx = 0
+                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - sum(10**x for x in gt_lplist[:gt_idx] + gt_lplist[:gt_idx+1])))
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
+            else:
+                var.qual += -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
             if gt_idx == 1:
                 var.genotype(sample).set_format('GT', '0/1')
             elif gt_idx == 2:
@@ -693,7 +697,8 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         else:
             var.genotype(sample).set_format('GT', './.')
             var.qual = 0
-            var.genotype(sample).set_format('GQ', 0)
+            var.genotype(sample).set_format('GQ', '.')
+            var.genotype(sample).set_format('GL', '.')
             var.genotype(sample).set_format('DP', 0)
             var.genotype(sample).set_format('AO', 0)
             var.genotype(sample).set_format('RO', 0)
