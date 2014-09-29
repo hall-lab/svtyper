@@ -650,23 +650,15 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         # if there are informative reads at the site, output inferred genotype
         if len(spl_scaled_counter_a) + len(spl_scaled_counter_b) + disc_scaled_counter_a + disc_scaled_counter_b > 0:
             split_alt = spl_counter_a[posA] + spl_counter_b[posB]
-            if split_alt > 0:
-                split_ref = ref_counter_a[posA] + ref_counter_b[posB]
-            else: split_ref = 0
+            split_ref = ref_counter_a[posA] + ref_counter_b[posB]
             disc_alt = disc_counter_a + disc_counter_b
-            if disc_alt > 0:
-                disc_ref = conc_counter_a + conc_counter_b
-            else: disc_ref = 0
+            disc_ref = conc_counter_a + conc_counter_b
 
             split_scaled_alt = spl_scaled_counter_a[posA] + spl_scaled_counter_b[posB]
-            if int(split_scaled_alt) > 0:
-                split_scaled_ref = ref_scaled_counter_a[posA] + ref_scaled_counter_b[posB]
-            else: split_scaled_ref = 0
+            split_scaled_ref = ref_scaled_counter_a[posA] + ref_scaled_counter_b[posB]
             disc_scaled_alt = disc_scaled_counter_a + disc_scaled_counter_b
-            if int(disc_scaled_alt) > 0:
-                disc_scaled_ref = conc_scaled_counter_a + conc_scaled_counter_b
-            else:
-                disc_scaled_ref = 0
+            disc_scaled_ref = conc_scaled_counter_a + conc_scaled_counter_b
+            disc_scaled_ref = 0
 
             # get bayesian classifier
             if var.info['SVTYPE'] == "DUP": is_dup = True
@@ -689,13 +681,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 var.genotype(sample).set_format('AP', int(disc_scaled_alt))
                 var.genotype(sample).set_format('RP', int(disc_scaled_ref))
 
-            # # don't genotype if LUMPY call is reference
-            # if var.genotype(sample).get_format('GT') == '0/0':
-            #     gt_idx = 0
-            #     var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - math.log(sum(10**x for x in gt_lplist),10) ))
-            #     vcf_out.write(var.get_var_string() + '\n')
-            #     continue
-            # else:
+            # assign genotypes
             sample_qual = -10 * (gt_lplist[0] - math.log(sum(10**x for x in gt_lplist),10) ) # phred-scaled probability site is non-reference in this sample
             var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - math.log(sum(10**x for x in gt_lplist),10) ))
             var.genotype(sample).set_format('SQ', sample_qual)
