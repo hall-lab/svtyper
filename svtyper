@@ -32,7 +32,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-rl', '--read_length', type=int, required=False, help='maximum read-length in BAM [auto]')
-    parser.add_argument('-d', '--detailed', type=int, required=False, help='more detailed VCF format fields')
+    parser.add_argument('-d', '--detailed', action='store_true', required=False, help='more detailed VCF format fields')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
     # parse the arguments
@@ -647,7 +647,6 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             print 'sr_b_scaled', ref_scaled_counter_b[posB], spl_scaled_counter_b[posB]
             print 'pe_b_scaled', conc_scaled_counter_b, disc_scaled_counter_b
 
-
         # if there are informative reads at the site, output inferred genotype
         if len(spl_scaled_counter_a) + len(spl_scaled_counter_b) + disc_scaled_counter_a + disc_scaled_counter_b > 0:
             split_alt = spl_counter_a[posA] + spl_counter_b[posB]
@@ -693,12 +692,12 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             # don't genotype if LUMPY call is reference
             if var.genotype(sample).get_format('GT') == '0/0':
                 gt_idx = 0
-                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - sum(10**x for x in gt_lplist[:gt_idx] + gt_lplist[:gt_idx+1])))
+                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - math.log(sum(10**x for x in gt_lplist),10) ))
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
             else:
-                sample_qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist)) # phred-scaled probability site is non-reference in this sample
-                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - sum(10**x for x in gt_lplist[:gt_idx] + gt_lplist[:gt_idx+1])))
+                sample_qual = -10 * (gt_lplist[0] - math.log(sum(10**x for x in gt_lplist),10) ) # phred-scaled probability site is non-reference in this sample
+                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - math.log(sum(10**x for x in gt_lplist),10) ))
                 var.genotype(sample).set_format('SQ', sample_qual)
                 var.qual += sample_qual
             if gt_idx == 1:
