@@ -32,6 +32,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-rl', '--read_length', type=int, required=False, help='maximum read-length in BAM [auto]')
+    parser.add_argument('-d', '--detailed', type=int, required=False, help='more detailed VCF format fields')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
     # parse the arguments
@@ -286,9 +287,12 @@ def log_choose(n, k):
     return r
 
 # return the genotype and log10 p-value
-def bayes_gt(ref, alt):
+def bayes_gt(ref, alt, is_dup):
     # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
-    p_alt = [0.1, 0.4, 0.8]
+    if is_dup: # specialized logic to handle non-destructive events such as duplications
+        p_alt = [0.1, 0.3, 0.5]
+    else:
+        p_alt = [0.1, 0.4, 0.8]
 
     total = ref + alt
     
@@ -484,7 +488,7 @@ def get_read_length(bam):
     return max_rl
         
 # primary function
-def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan, sd_ospan, read_length, split_weight, disc_weight, debug):
+def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan, sd_ospan, read_length, split_weight, disc_weight, detailed, debug):
     # sample insert size distribution
     if mean_ospan == None or sd_ospan == None:
         (mean_ospan, sd_ospan) = insert_dist(bam)
@@ -518,10 +522,12 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 vcf.add_header(header)
                 vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
                 vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
-                vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
-                vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
-                vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
-                vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
+                if detailed:
+                    vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
+                    vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
+                    vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
+                    vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
+                vcf.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
                 vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
                 vcf_out.write(vcf.get_header() + '\n')
 
@@ -664,7 +670,9 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 disc_scaled_ref = 0
 
             # get bayesian classifier
-            gt_lplist = bayes_gt(int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref), int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt))
+            if var.info['SVTYPE'] == "DUP": is_dup = True
+            else: is_dup = False
+            gt_lplist = bayes_gt(int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref), int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt), is_dup)
             gt_idx = gt_lplist.index(max(gt_lplist[1:]))
 
             # print log probabilities of homref, het, homalt
@@ -672,15 +680,15 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 print gt_lplist
 
             # set the overall variant QUAL score and sample specific fields
-            var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - sum(10**x for x in gt_lplist[:gt_idx] + gt_lplist[:gt_idx+1])))
             var.genotype(sample).set_format('GL', ','.join(['%.0f' % x for x in gt_lplist]))
             var.genotype(sample).set_format('DP', int(split_scaled_ref + split_scaled_alt + disc_scaled_ref + disc_scaled_alt))
             var.genotype(sample).set_format('AO', int(split_scaled_alt + disc_scaled_alt))
             var.genotype(sample).set_format('RO', int(split_scaled_ref + disc_scaled_ref))
-            var.genotype(sample).set_format('AS', int(split_scaled_alt))
-            var.genotype(sample).set_format('RS', int(split_scaled_ref))
-            var.genotype(sample).set_format('AP', int(disc_scaled_alt))
-            var.genotype(sample).set_format('RP', int(disc_scaled_ref))
+            if detailed:
+                var.genotype(sample).set_format('AS', int(split_scaled_alt))
+                var.genotype(sample).set_format('RS', int(split_scaled_ref))
+                var.genotype(sample).set_format('AP', int(disc_scaled_alt))
+                var.genotype(sample).set_format('RP', int(disc_scaled_ref))
 
             # don't genotype if LUMPY call is reference
             if var.genotype(sample).get_format('GT') == '0/0':
@@ -689,7 +697,10 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
             else:
-                var.qual += -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist))
+                sample_qual = -10 * (gt_lplist[0] - sum(10**x for x in gt_lplist)) # phred-scaled probability site is non-reference in this sample
+                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - sum(10**x for x in gt_lplist[:gt_idx] + gt_lplist[:gt_idx+1])))
+                var.genotype(sample).set_format('SQ', sample_qual)
+                var.qual += sample_qual
             if gt_idx == 1:
                 var.genotype(sample).set_format('GT', '0/1')
             elif gt_idx == 2:
@@ -702,10 +713,11 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             var.genotype(sample).set_format('DP', 0)
             var.genotype(sample).set_format('AO', 0)
             var.genotype(sample).set_format('RO', 0)
-            var.genotype(sample).set_format('AS', 0)
-            var.genotype(sample).set_format('RS', 0)
-            var.genotype(sample).set_format('AP', 0)
-            var.genotype(sample).set_format('RP', 0)
+            if detailed:
+                var.genotype(sample).set_format('AS', 0)
+                var.genotype(sample).set_format('RS', 0)
+                var.genotype(sample).set_format('AP', 0)
+                var.genotype(sample).set_format('RP', 0)
 
         vcf_out.write(var.get_var_string() + '\n')
         if var.info['SVTYPE'] == 'BND':
@@ -725,7 +737,7 @@ def main():
     args = get_args()
 
     # call primary function
-    sv_genotype(args.input_vcf, args.bam, args.split_bam, args.output_vcf, args.splflank, args.discflank, args.mean_frag_size, args.sd_frag_size, args.read_length, args.split_weight, args.disc_weight, args.debug)
+    sv_genotype(args.input_vcf, args.bam, args.split_bam, args.output_vcf, args.splflank, args.discflank, args.mean_frag_size, args.sd_frag_size, args.read_length, args.split_weight, args.disc_weight, args.detailed, args.debug)
 
     # close the files
     args.input_vcf.close()
