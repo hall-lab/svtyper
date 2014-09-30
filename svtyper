@@ -571,17 +571,13 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             else:
                 breakend_dict[var.var_id] = var
                 continue
-
-            # write out and skip
-            # vcf_out.write(var.get_var_string() + '\n')
-            # continue
         else:
             chromA = var.chrom
             chromB = var.chrom
             posA = var.pos
             # SHOULD NOT ADD 1 HERE, CURRENTLY ADJUSTING FOR A LUMPY OFF-BY-ONE ERROR
             posB = int(var.get_info('END')) + 1
-            o1, o2 =  list(var.get_info('STR').split(',')[0].split(':')[0])
+            o1, o2 =  list(var.get_info('STR').split(',')[0].split(':')[0]) # currently ignores the other side for two-sided inversions
 
         '''
         Breakend A
@@ -664,7 +660,8 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             if var.info['SVTYPE'] == "DUP": is_dup = True
             else: is_dup = False
             gt_lplist = bayes_gt(int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref), int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt), is_dup)
-            gt_idx = gt_lplist.index(max(gt_lplist[1:]))
+            # gt_idx = gt_lplist.index(max(gt_lplist[1:]))
+            gt_idx = gt_lplist.index(max(gt_lplist))
 
             # print log probabilities of homref, het, homalt
             if debug:
