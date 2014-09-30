@@ -543,8 +543,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                     chromA = var.chrom
                     chromB = var2.chrom
                     posA = var.pos
-                    # SHOULD NOT ADD 1 HERE, CURRENTLY ADJUSTING FOR A LUMPY OFF-BY-ONE ERROR
-                    posB = var2.pos + 1
+                    posB = var2.pos
 
                     # infer the strands from the alt allele
                     if var.alt[-1] == '[' or var.alt[-1] == ']':
@@ -558,8 +557,7 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
                     chromA = var.chrom
                     chromB = var2.chrom
                     posA = var.pos
-                    # SHOULD NOT ADD 1 HERE, CURRENTLY ADJUSTING FOR A LUMPY OFF-BY-ONE ERROR
-                    posB = var2.pos + 1
+                    posB = var2.pos
                     
                     # infer the strands from the alt allele
                     if var.alt[-1] == '[' or var.alt[-1] == ']':
@@ -575,9 +573,12 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
             chromA = var.chrom
             chromB = var.chrom
             posA = var.pos
-            # SHOULD NOT ADD 1 HERE, CURRENTLY ADJUSTING FOR A LUMPY OFF-BY-ONE ERROR
-            posB = int(var.get_info('END')) + 1
+            posB = int(var.get_info('END'))
             o1, o2 =  list(var.get_info('STR').split(',')[0].split(':')[0]) # currently ignores the other side for two-sided inversions
+
+        # SHOULD NOT ADD 1 HERE, CURRENTLY ADJUSTING FOR A LUMPY OFF-BY-ONE ERROR ON NEGATIVE STRAND
+        if o1 == '-': posA += 1
+        if o2 == '-': posB += 1
 
         '''
         Breakend A
