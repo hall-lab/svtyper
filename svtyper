@@ -378,31 +378,34 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
 
         # survey for discordant pairs
         for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
-            if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pnext + read_length - discflank < pos:
+            if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate:
                 continue
 
             mate_mapq = get_mate_mapq(mybam, read)
             # +/- but other than deletion
-            if o2 == '-' and not (chrom == mate_chrom and pos < mate_pos):
-                if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
+            if o2 == '-' and chrom == mate_chrom and not (chrom == mate_chrom and pos < mate_pos):
+                if not read.mate_is_reverse or read.pnext > read.pos or read.tid != read.rnext or read.pnext + read_length - discflank < mate_pos:
+                    continue
+                ispan1 = read.pos + discflank
+                ispan2 = get_mate_5prime(mybam, read) - discflank - 1
+                ispan = ispan2 - ispan1
+
+                ospan = (read.aend - pos) + (mate_pos - read.pnext)
+                if ispan2 > mate_pos and ispan2 < mate_pos + (mean_ospan + sd_ospan * z) and ospan < (mean_ospan + sd_ospan * z):
+                    # print ispan2, pos, mate_pos, 'mate'
+                    disc_counter += 1
+                    disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+            # +/- translocation
+            elif o2 == '-' and chrom != mate_chrom:
+                if not read.mate_is_reverse or read.pnext + read_length - discflank < mate_pos:
                     continue
                 else:
-                    ospan = get_mate_5prime(mybam, read) - read.pos
-
                     ispan1 = read.pos + discflank
                     ispan2 = get_mate_5prime(mybam, read) - discflank - 1
                     ispan = ispan2 - ispan1
-
-                    if ispan2 > mate_pos and ispan2 < mate_pos + (mean_ospan + sd_ospan * z):
+                    if ispan2 > mate_pos:
                         disc_counter += 1
                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-            # +/- translocation
-            elif o2 == '-' and chrom != mate_chrom:
-                if not read.mate_is_reverse or read.pnext + read_length - discflank < pos:
-                    continue
-                else:
-                    disc_counter += 1
-                    disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
             # +/+ inversion
             elif o2 == '+':
                 if read.mate_is_reverse:
@@ -424,7 +427,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
                 ispan2 = read.pnext + discflank
                 ispan = ispan1 - ispan2
 
-                if ispan1 < pos:
+                if ispan2 < pos:
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if o2 == '+' and chrom == mate_chrom and mate_pos < pos:
@@ -433,24 +436,28 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, mean_ospan, sd_osp
                         continue
 
         # survey for discordant read pairs
-        print mate_pos, mate_pos - (mean_ospan + sd_ospan * z)
         for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
-            if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos:
+            if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos:
                 continue
 
             mate_mapq = get_mate_mapq(mybam, read)
-            # -/+ tandem duplication (or interchromosomal)
-            if o2 == '+':
-                if not read.mate_is_reverse and not (chrom == mate_chrom and mate_pos < pos):
-                    print read
-                    ispan1 = read.aend - discflank - 1
-                    ispan2 = read.pnext + discflank
-                    ispan = ispan2 - ispan1
+            # -/+ tandem duplication
+            if o2 == '+' and chrom == mate_chrom and mate_pos > pos:
+                if read.mate_is_reverse or read.pnext < read.pos or read.tid != read.rnext:
+                    continue
 
-                    if ispan2 < mate_pos:# and ispan2 > mate_pos - (mean_ospan + sd_ospan * z):
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                        print disc_scaled_counter
+                ispan1 = read.aend - discflank - 1
+                ispan2 = read.pnext + discflank
+                ispan = ispan2 - ispan1
+
+                ospan = (read.aend - pos) + (mate_pos - read.pnext)
+
+                if ispan2 < mate_pos and ispan2 > mate_pos - (mean_ospan + sd_ospan * z) and ospan < (mean_ospan + sd_ospan * z):
+                    # print 'ospan', read.aend - pos, mate_pos - read.pnext, read.aend - pos + mate_pos - read.pnext
+                    # print read
+                    disc_counter += 1
+                    disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    # print disc_scaled_counter
 
             # -/- inversion
             elif o2 == '-':
