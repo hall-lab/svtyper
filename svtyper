@@ -290,9 +290,9 @@ def log_choose(n, k):
 def bayes_gt(ref, alt, is_dup):
     # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
     if is_dup: # specialized logic to handle non-destructive events such as duplications
-        p_alt = [0.001, 0.3, 0.5]
+        p_alt = [0.01, 0.3, 0.5]
     else:
-        p_alt = [0.001, 0.4, 0.8]
+        p_alt = [0.01, 0.4, 0.8]
 
     total = ref + alt
     
