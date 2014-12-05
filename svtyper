@@ -356,7 +356,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, svtype, mean_ospan
 
     if o1 == '+':
         # survey for concordant read pairs
-        for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
+        for read in mybam.fetch(chrom, max(pos - (mean_ospan + sd_ospan * z), 0), pos):
             if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos or read.tid != read.rnext:
                 continue
             else:
@@ -378,7 +378,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, svtype, mean_ospan
 
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
-            for read in mybam.fetch(chrom, pos - (mean_ospan + sd_ospan * z), pos):
+            for read in mybam.fetch(chrom, max(pos - (mean_ospan + sd_ospan * z), 0), pos):
                 if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or mybam.getrname(read.rnext) != mate_chrom:
                     continue
 
@@ -424,7 +424,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, svtype, mean_ospan
 
     elif o1 == '-':
         # survey for concordant read pairs
-        for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
+        for read in mybam.fetch(chrom, max(pos, 0), pos + (mean_ospan + sd_ospan * z)):
             if not read.is_reverse or read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos or read.tid != read.rnext:
                 continue
             else:
@@ -445,7 +445,7 @@ def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, svtype, mean_ospan
         
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
-            for read in mybam.fetch(chrom, pos, pos + (mean_ospan + sd_ospan * z)):
+            for read in mybam.fetch(chrom, max(pos, 0), pos + (mean_ospan + sd_ospan * z)):
                 if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or mybam.getrname(read.rnext) != mate_chrom:
                     continue
 
@@ -626,13 +626,13 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         ref_scaled_counter_a = Counter()
         spl_scaled_counter_a = Counter()
 
-        for ref_read in bam.fetch(chromA, posA - padding, posA + padding + 1):
+        for ref_read in bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                         ref_counter_a[p] += 1
                         ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
-        for spl_read in spl_bam.fetch(chromA, posA - padding, posA + padding + 1):
+        for spl_read in spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 if o1 == '+' and spl_read.cigar[0][0] == 0:
                     # if debug: print 'o1+', spl_read.aend
@@ -661,13 +661,13 @@ def sv_genotype(vcf_file, bam, spl_bam, vcf_out, splflank, discflank, mean_ospan
         ref_scaled_counter_b = Counter()
         spl_scaled_counter_b = Counter()
 
-        for ref_read in bam.fetch(chromB, posB - padding, posB + padding + 1):
+        for ref_read in bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
             if not ref_read.is_duplicate and not ref_read.is_unmapped:
                 for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
                     if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                         ref_counter_b[p] += 1
                         ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
-        for spl_read in spl_bam.fetch(chromB, posB - padding, posB + padding + 1):
+        for spl_read in spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
             if not spl_read.is_duplicate and not spl_read.is_unmapped:
                 if o2 == '+' and spl_read.cigar[0][0] == 0:
                     spl_counter_b[spl_read.aend] += 1
