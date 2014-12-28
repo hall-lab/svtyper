@@ -3,7 +3,7 @@
 import pysam
 import argparse, sys
 import math, time, re
-import multiprocessing
+# import multiprocessing
 from collections import Counter
 from argparse import RawTextHelpFormatter
 from scipy.stats import norm
@@ -17,7 +17,7 @@ __date__ = "$Date: 2014-04-28 14:31 $"
 
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
-svgt\n\
+svtyper\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
