@@ -560,10 +560,6 @@ def sv_genotype(vcf_file,
             sd_ospan_list.append(i_dist[1])
             read_length_list.append(get_read_length(bam))
 
-    print mean_ospan_list
-    print sd_ospan_list
-    print read_length_list
-
     z = 3
     padding = 30
     in_header = True
@@ -692,22 +688,31 @@ def sv_genotype(vcf_file,
         ref_scaled_counter_b = Counter()
         spl_scaled_counter_b = Counter()
 
-        for ref_read in bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-            if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
-                    if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                        ref_counter_b[p] += 1
-                        ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
-        for spl_read in spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-            if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                if o2 == '+' and spl_read.cigar[0][0] == 0:
-                    spl_counter_b[spl_read.aend] += 1
-                    # if debug: print 'o2+', spl_read.aend
-                    spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
-                elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                    # if debug: print 'o2-', spl_read.pos + 1
-                    spl_counter_b[spl_read.pos + 1] += 1
-                    spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
+        for i in xrange(len(bam_list)):
+            bam = bam_list[i]
+            spl_bam = spl_bam_list[i]
+            mean_ospan = mean_ospan_list[i]
+            sd_ospan = sd_ospan_list[i]
+            mean_ispan = mean_ospan - (2 * discflank)
+            sd_ispan = sd_ospan
+            read_length = read_length_list[i]
+
+            for ref_read in bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
+                if not ref_read.is_duplicate and not ref_read.is_unmapped:
+                    for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
+                        if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
+                            ref_counter_b[p] += 1
+                            ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
+            for spl_read in spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
+                if not spl_read.is_duplicate and not spl_read.is_unmapped:
+                    if o2 == '+' and spl_read.cigar[0][0] == 0:
+                        spl_counter_b[spl_read.aend] += 1
+                        # if debug: print 'o2+', spl_read.aend
+                        spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
+                    elif o2 == '-' and spl_read.cigar[-1][0] == 0:
+                        # if debug: print 'o2-', spl_read.pos + 1
+                        spl_counter_b[spl_read.pos + 1] += 1
+                        spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordants and concordants
         (conc_counter_b, disc_counter_b, conc_scaled_counter_b, disc_scaled_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, var.info['SVTYPE'], mean_ospan, sd_ospan, z, discflank, read_length, bam)
