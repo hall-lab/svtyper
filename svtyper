@@ -25,13 +25,10 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-S', '--split_bam', type=str, required=True, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
     parser.add_argument('-v', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    parser.add_argument('-m', '--mean_frag_size', type=float, required=False, help='mean fragment size of library [auto]')
-    parser.add_argument('-sd', '--sd_frag_size', type=float, required=False, help='standard deviation of fragment size of library [auto]')
     parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
-    parser.add_argument('-rl', '--read_length', type=int, required=False, help='maximum read-length in BAM [auto]')
     parser.add_argument('-d', '--detailed', action='store_true', required=False, help='more detailed VCF format fields')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
@@ -346,149 +343,166 @@ def p_concordant(read_ospan, var_length, mean_ospan, sd_ospan):
     else:
         return p / (p + q)
 
-def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, svtype, mean_ospan, sd_ospan, z, discflank, read_length, mybam):
+def count_pairedend(chrom, pos, mate_chrom, mate_pos, o1, o2, svtype, mean_ospan_list, sd_ospan_list, z, discflank, read_length_list, rg_to_lib, bam_list):
     conc_counter = 0
     disc_counter = 0
     conc_scaled_counter = 0
     disc_scaled_counter = 0
+    fetch_flank = max(mean_ospan_list.values()) + max(sd_ospan_list.values()) * z
 
     if o1 == '+':
         # survey for concordant read pairs
-        for read in mybam.fetch(chrom, max(pos - (mean_ospan + sd_ospan * z), 0), pos):
-            if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos or read.tid != read.rnext:
-                continue
-            else:
-                mate_mapq = get_mate_mapq(mybam, read)
-                ospan = get_mate_5prime(mybam, read) - read.pos
-                prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
-
-                ispan1 = read.pos + discflank
-                ispan2 = get_mate_5prime(mybam, read) - discflank - 1 # speed up here
-                ispan = ispan2 - ispan1
-
-                if ispan2 > pos:
-                    conc_counter += 1
-                    conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    # if a deletion, iterate the discordants for these too
-                    if svtype == 'DEL':
-                        disc_counter += 1
-                        disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-
-        # now look at discordants for corresponding SV types
-        if svtype != 'DEL':
-            for read in mybam.fetch(chrom, max(pos - (mean_ospan + sd_ospan * z), 0), pos):
-                if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or mybam.getrname(read.rnext) != mate_chrom:
+        for mybam in bam_list:
+            for read in mybam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
+                lib = rg_to_lib[read.opt('RG')] # get the read's library
+                mean_ospan = mean_ospan_list[lib]
+                sd_ospan = sd_ospan_list[lib]
+                read_length = read_length_list[lib]
+                if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos or read.tid != read.rnext:
                     continue
+                else:
+                    mate_mapq = get_mate_mapq(mybam, read)
+                    ospan = get_mate_5prime(mybam, read) - read.pos
+                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
 
-                mate_mapq = get_mate_mapq(mybam, read) # move this for speed
-                mate_5prime = get_mate_5prime(mybam, read)
-                if svtype == 'DUP':
-                    if not read.mate_is_reverse or read.pnext > read.pos or read.tid != read.rnext:
-                        continue
                     ispan1 = read.pos + discflank
-                    ispan2 = mate_5prime - discflank - 1
-                    if ispan1 < pos: # and ispan2 > mate_pos and ospan < (mean_ospan + sd_ospan * z):
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'INV':
-                    if read.mate_is_reverse:
+                    ispan2 = get_mate_5prime(mybam, read) - discflank - 1 # speed up here
+                    ispan = ispan2 - ispan1
+
+                    if ispan2 > pos:
+                        conc_counter += 1
+                        conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                        # if a deletion, iterate the discordants for these too
+                        if svtype == 'DEL':
+                            disc_counter += 1
+                            disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+
+            # now look at discordants for corresponding SV types
+            if svtype != 'DEL':
+                for read in mybam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
+                    lib = rg_to_lib[read.opt('RG')] # get the read's library
+                    mean_ospan = mean_ospan_list[lib]
+                    sd_ospan = sd_ospan_list[lib]
+                    read_length = read_length_list[lib]
+                    if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or mybam.getrname(read.rnext) != mate_chrom:
                         continue
-                    ispan1 = read.pos + discflank
-                    ispan2 = read.pnext + discflank
-                    if ispan1 < pos: # and ispan2 < mate_pos and ospan < (mean_ospan + sd_ospan * z):
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'BND':
-                    if o2 == '-':
-                        if not read.mate_is_reverse or read.pnext + read_length - discflank < mate_pos:
+
+                    mate_mapq = get_mate_mapq(mybam, read) # move this for speed
+                    mate_5prime = get_mate_5prime(mybam, read)
+                    if svtype == 'DUP':
+                        if not read.mate_is_reverse or read.pnext > read.pos or read.tid != read.rnext:
                             continue
                         ispan1 = read.pos + discflank
                         ispan2 = mate_5prime - discflank - 1
-                        if ispan1 < pos:
+                        if ispan1 < pos: # and ispan2 > mate_pos and ospan < (mean_ospan + sd_ospan * z):
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if o2 == '+':
-                        if read.mate_is_reverse or read.pnext + discflank > mate_pos:
+                    elif svtype == 'INV':
+                        if read.mate_is_reverse:
                             continue
                         ispan1 = read.pos + discflank
                         ispan2 = read.pnext + discflank
-                        if ispan1 < pos:
+                        if ispan1 < pos: # and ispan2 < mate_pos and ospan < (mean_ospan + sd_ospan * z):
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    elif svtype == 'BND':
+                        if o2 == '-':
+                            if not read.mate_is_reverse or read.pnext + read_length - discflank < mate_pos:
+                                continue
+                            ispan1 = read.pos + discflank
+                            ispan2 = mate_5prime - discflank - 1
+                            if ispan1 < pos:
+                                disc_counter += 1
+                                disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                        if o2 == '+':
+                            if read.mate_is_reverse or read.pnext + discflank > mate_pos:
+                                continue
+                            ispan1 = read.pos + discflank
+                            ispan2 = read.pnext + discflank
+                            if ispan1 < pos:
+                                disc_counter += 1
+                                disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
     elif o1 == '-':
         # survey for concordant read pairs
-        for read in mybam.fetch(chrom, max(pos, 0), pos + (mean_ospan + sd_ospan * z)):
-            if not read.is_reverse or read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos or read.tid != read.rnext:
-                continue
-            else:
-                mate_mapq = get_mate_mapq(mybam, read)
-                ospan = read.aend - read.pnext
-                prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
-
-                ispan1 = read.aend - discflank - 1
-                ispan2 = read.pnext + discflank
-                ispan = ispan1 - ispan2
-
-                if ispan2 < pos:
-                    conc_counter += 1
-                    conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if svtype == 'DEL':
-                        disc_counter += 1
-                        disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-
-        # now look at discordants for corresponding SV types
-        if svtype != 'DEL':
-            for read in mybam.fetch(chrom, max(pos, 0), pos + (mean_ospan + sd_ospan * z)):
-                if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or mybam.getrname(read.rnext) != mate_chrom:
+        for mybam in bam_list:
+            for read in mybam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
+                lib = rg_to_lib[read.opt('RG')] # get the read's library
+                mean_ospan = mean_ospan_list[lib]
+                sd_ospan = sd_ospan_list[lib]
+                read_length = read_length_list[lib]
+                if not read.is_reverse or read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos or read.tid != read.rnext:
                     continue
+                else:
+                    mate_mapq = get_mate_mapq(mybam, read)
+                    ospan = read.aend - read.pnext
+                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
 
-                mate_mapq = get_mate_mapq(mybam, read) # move this for speed
-                mate_5prime = get_mate_5prime(mybam, read)
-
-                if svtype == 'DUP':
-                    if read.mate_is_reverse or read.pnext < read.pos or read.tid != read.rnext:
-                        continue
                     ispan1 = read.aend - discflank - 1
                     ispan2 = read.pnext + discflank
-                    if ispan1 > pos:
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'INV':
-                    if not read.mate_is_reverse:
-                        continue
-                    ispan1 = read.aend - discflank - 1
-                    ispan2 = mate_5prime - discflank - 1
-                    if ispan1 > pos:
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'BND':
-                    if o2 == '-':
-                        if not read.mate_is_reverse or read.pnext + read_length - discflank < mate_pos:
-                            continue
-                        ispan1 = read.aend - discflank - 1
-                        ispan2 = mate_5prime - discflank - 1
-                        if ispan1 > pos:
+                    ispan = ispan1 - ispan2
+
+                    if ispan2 < pos:
+                        conc_counter += 1
+                        conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                        if svtype == 'DEL':
                             disc_counter += 1
-                            disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if o2 == '+':
-                        if read.mate_is_reverse or read.pnext + discflank > mate_pos:
+                            disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+
+            # now look at discordants for corresponding SV types
+            if svtype != 'DEL':
+                for read in mybam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
+                    if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or mybam.getrname(read.rnext) != mate_chrom:
+                        continue
+
+                    mate_mapq = get_mate_mapq(mybam, read) # move this for speed
+                    mate_5prime = get_mate_5prime(mybam, read)
+
+                    if svtype == 'DUP':
+                        if read.mate_is_reverse or read.pnext < read.pos or read.tid != read.rnext:
                             continue
                         ispan1 = read.aend - discflank - 1
                         ispan2 = read.pnext + discflank
                         if ispan1 > pos:
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    elif svtype == 'INV':
+                        if not read.mate_is_reverse:
+                            continue
+                        ispan1 = read.aend - discflank - 1
+                        ispan2 = mate_5prime - discflank - 1
+                        if ispan1 > pos:
+                            disc_counter += 1
+                            disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                    elif svtype == 'BND':
+                        if o2 == '-':
+                            if not read.mate_is_reverse or read.pnext + read_length - discflank < mate_pos:
+                                continue
+                            ispan1 = read.aend - discflank - 1
+                            ispan2 = mate_5prime - discflank - 1
+                            if ispan1 > pos:
+                                disc_counter += 1
+                                disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+                        if o2 == '+':
+                            if read.mate_is_reverse or read.pnext + discflank > mate_pos:
+                                continue
+                            ispan1 = read.aend - discflank - 1
+                            ispan2 = read.pnext + discflank
+                            if ispan1 > pos:
+                                disc_counter += 1
+                                disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
     return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
 
-def insert_dist(bam):
+def insert_dist(bam, rg):
     num_samp = 1000000
     counter = 0
     skip = 5000000
     skip_counter = 0
     ins_list = []
     for read in bam.fetch():
+        if read.opt('RG') not in rg:
+            continue
         if skip_counter < skip:
             skip_counter += 1
             continue
@@ -505,11 +519,13 @@ def insert_dist(bam):
     stdev = variance**(0.5)
     return (mean, stdev)
 
-def get_read_length(bam):
+def get_read_length(bam, rg):
     max_rl = 0
     counter = 0
     num_samp = 10000
     for read in bam.fetch():
+        if read.opt('RG') not in rg:
+            continue
         if read.qlen > max_rl:
             max_rl = read.qlen
         if counter == num_samp:
@@ -524,9 +540,6 @@ def sv_genotype(vcf_file,
                 vcf_out,
                 splflank,
                 discflank,
-                mean_ospan_string,
-                sd_ospan_string,
-                read_length_string,
                 split_weight,
                 disc_weight,
                 detailed,
@@ -536,29 +549,27 @@ def sv_genotype(vcf_file,
     bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
     spl_bam_list = [pysam.Samfile(b, 'rb') for b in spl_bam_string.split(',')]
 
-    if len(bam_list) != len(spl_bam_list):
-        print "Error: Number of BAM files must be equal to number of splitter BAM files."
-        exit(1)
-    if (mean_ospan_string != None
-        and sd_ospan_string != None
-        and read_length_string != None):
-        mean_ospan_list = mean_ospan_string.split(',')
-        sd_ospan_list = sd_ospan_string.split(',')
-        read_length_list = read_length_string.split(',')
-        if (len(mean_ospan_list) != len(bam_list)
-            or len(sd_ospan) != len(bam_list)
-            or len(read_length_list) != len(bam_list)):
-            print "Error: Lengths of mean_ospan, sd_ospan, and read_length must be equal to length of BAM list"
-            exit(1)
-    else:
-        mean_ospan_list = list()
-        sd_ospan_list = list()
-        read_length_list = list()
-        for bam in bam_list:
-            i_dist = insert_dist(bam)
-            mean_ospan_list.append(i_dist[0])
-            sd_ospan_list.append(i_dist[1])
-            read_length_list.append(get_read_length(bam))
+    # parse the library design from the BAMs
+    lib_to_rg = dict()
+    rg_to_lib = dict()
+    for bam in bam_list:
+        for r in bam.header['RG']:
+            rg_to_lib[r['ID']] = r['LB']
+            if r['LB'] not in lib_to_rg:
+                lib_to_rg[r['LB']] = [r['ID']]
+            else:
+                lib_to_rg[r['LB']].append(r['ID'])
+
+    # define library insert distributions and read lengths
+    mean_ospan_list = dict()
+    sd_ospan_list = dict()
+    read_length_list = dict()
+    for bam in bam_list:
+        for lib in lib_to_rg:
+            i_dist = insert_dist(bam, lib_to_rg[lib])
+            mean_ospan_list[lib] = i_dist[0]
+            sd_ospan_list[lib] = i_dist[1]
+            read_length_list[lib] = get_read_length(bam, lib_to_rg[lib])
 
     z = 3
     padding = 30
@@ -568,7 +579,7 @@ def sv_genotype(vcf_file,
     vcf = Vcf()
 
     # first get the sample name from the bam file
-    sample = bam.header['RG'][0]['SM']
+    sample = bam_list[0].header['RG'][0]['SM']
 
     for line in vcf_file:
         if in_header:
@@ -650,34 +661,27 @@ def sv_genotype(vcf_file,
         ref_scaled_counter_a = Counter()
         spl_scaled_counter_a = Counter()
 
-        for i in xrange(len(bam_list)):
-            bam = bam_list[i]
-            spl_bam = spl_bam_list[i]
-            mean_ospan = mean_ospan_list[i]
-            sd_ospan = sd_ospan_list[i]
-            mean_ispan = mean_ospan - (2 * discflank)
-            sd_ispan = sd_ospan
-            read_length = read_length_list[i]
-
-            for ref_read in bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
-                if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                    for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
-                        if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                            ref_counter_a[p] += 1
-                            ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
-            for spl_read in spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
-                if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                    if o1 == '+' and spl_read.cigar[0][0] == 0:
-                        # if debug: print 'o1+', spl_read.aend
-                        spl_counter_a[spl_read.aend] += 1
-                        spl_scaled_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
-                    elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                        # if debug: print 'o1-', spl_read.pos + 1
-                        spl_counter_a[spl_read.pos + 1] += 1
-                        spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
+        for spl_bam in spl_bam_list:
+            for bam in bam_list:
+                for ref_read in bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
+                    if not ref_read.is_duplicate and not ref_read.is_unmapped:
+                        for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
+                            if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
+                                ref_counter_a[p] += 1
+                                ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
+                for spl_read in spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
+                    if not spl_read.is_duplicate and not spl_read.is_unmapped:
+                        if o1 == '+' and spl_read.cigar[0][0] == 0:
+                            # if debug: print 'o1+', spl_read.aend
+                            spl_counter_a[spl_read.aend] += 1
+                            spl_scaled_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
+                        elif o1 == '-' and spl_read.cigar[-1][0] == 0:
+                            # if debug: print 'o1-', spl_read.pos + 1
+                            spl_counter_a[spl_read.pos + 1] += 1
+                            spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordant and concordants
-        (conc_counter_a, disc_counter_a, conc_scaled_counter_a, disc_scaled_counter_a) = count_pairedend(chromA, posA, chromB, posB, o1, o2, var.info['SVTYPE'], mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_a, disc_counter_a, conc_scaled_counter_a, disc_scaled_counter_a) = count_pairedend(chromA, posA, chromB, posB, o1, o2, var.info['SVTYPE'], mean_ospan_list, sd_ospan_list, z, discflank, read_length_list, rg_to_lib, bam_list)
 
         '''
         Breakend B
@@ -688,34 +692,27 @@ def sv_genotype(vcf_file,
         ref_scaled_counter_b = Counter()
         spl_scaled_counter_b = Counter()
 
-        for i in xrange(len(bam_list)):
-            bam = bam_list[i]
-            spl_bam = spl_bam_list[i]
-            mean_ospan = mean_ospan_list[i]
-            sd_ospan = sd_ospan_list[i]
-            mean_ispan = mean_ospan - (2 * discflank)
-            sd_ispan = sd_ospan
-            read_length = read_length_list[i]
-
-            for ref_read in bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-                if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                    for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
-                        if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                            ref_counter_b[p] += 1
-                            ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
-            for spl_read in spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-                if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                    if o2 == '+' and spl_read.cigar[0][0] == 0:
-                        spl_counter_b[spl_read.aend] += 1
-                        # if debug: print 'o2+', spl_read.aend
-                        spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
-                    elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                        # if debug: print 'o2-', spl_read.pos + 1
-                        spl_counter_b[spl_read.pos + 1] += 1
-                        spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
+        for spl_bam in spl_bam_list:
+            for bam in bam_list:
+                for ref_read in bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
+                    if not ref_read.is_duplicate and not ref_read.is_unmapped:
+                        for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
+                            if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
+                                ref_counter_b[p] += 1
+                                ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
+                for spl_read in spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
+                    if not spl_read.is_duplicate and not spl_read.is_unmapped:
+                        if o2 == '+' and spl_read.cigar[0][0] == 0:
+                            spl_counter_b[spl_read.aend] += 1
+                            # if debug: print 'o2+', spl_read.aend
+                            spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
+                        elif o2 == '-' and spl_read.cigar[-1][0] == 0:
+                            # if debug: print 'o2-', spl_read.pos + 1
+                            spl_counter_b[spl_read.pos + 1] += 1
+                            spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordants and concordants
-        (conc_counter_b, disc_counter_b, conc_scaled_counter_b, disc_scaled_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, var.info['SVTYPE'], mean_ospan, sd_ospan, z, discflank, read_length, bam)
+        (conc_counter_b, disc_counter_b, conc_scaled_counter_b, disc_scaled_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, var.info['SVTYPE'], mean_ospan_list, sd_ospan_list, z, discflank, read_length_list, rg_to_lib, bam_list)
 
         if debug:
             print 'sr_a', ref_counter_a[posA], spl_counter_a[posA]
@@ -824,9 +821,6 @@ def main():
                 args.output_vcf,
                 args.splflank,
                 args.discflank,
-                args.mean_frag_size,
-                args.sd_frag_size,
-                args.read_length,
                 args.split_weight,
                 args.disc_weight,
                 args.detailed,
