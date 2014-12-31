@@ -501,10 +501,10 @@ def insert_dist(bam, rg):
     skip_counter = 0
     ins_list = []
     for read in bam.fetch():
-        if read.opt('RG') not in rg:
-            continue
         if skip_counter < skip:
             skip_counter += 1
+            continue
+        if read.opt('RG') not in rg:
             continue
         if read.is_proper_pair and not read.is_reverse and not read.is_secondary:
             ins_list.append(read.tlen)
