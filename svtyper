@@ -519,7 +519,10 @@ def insert_dist(bam, rg):
             continue
         if read.opt('RG') not in rg:
             continue
-        if read.is_proper_pair and not read.is_reverse and not read.is_secondary:
+        if (not read.is_reverse 
+            and not read.is_secondary
+            and not read.is_unmapped 
+            and not read.mate_is_unmapped):
             ins_list.append(read.tlen)
             counter += 1
         if counter == num_samp:
