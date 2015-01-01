@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import pysam
+import numpy as np
 import argparse, sys
 import math, time, re
 # import multiprocessing
@@ -507,26 +508,40 @@ def count_pairedend(chrom,
 
     return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
 
+def upper_mad(x):
+    med = np.median(x)
+    return med, np.median(x[x > med] - med)
+
 def insert_dist(bam, rg):
     num_samp = 1000000
     counter = 0
     skip = 5000000
     skip_counter = 0
+    mads = 10
     ins_list = []
     for read in bam.fetch():
         if skip_counter < skip:
             skip_counter += 1
             continue
-        if read.opt('RG') not in rg:
+        if (read.is_reverse 
+            or not read.mate_is_reverse
+            or read.is_unmapped
+            or read.mate_is_unmapped
+            or read.is_secondary
+            or read.tlen <= 0
+            or read.opt('RG') not in rg):
             continue
-        if (not read.is_reverse 
-            and not read.is_secondary
-            and not read.is_unmapped 
-            and not read.mate_is_unmapped):
+        else:
             ins_list.append(read.tlen)
             counter += 1
         if counter == num_samp:
             break
+    # remove outliers
+    ins_list = np.array(ins_list)
+    ins_list.sort()
+    med, umad = upper_mad(ins_list)
+    upper_cutoff = med + mads * umad
+    ins_list = ins_list[ins_list < upper_cutoff]
     mean = sum(ins_list)/float(len(ins_list))
     v = 0
     for i in ins_list:
