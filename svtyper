@@ -372,7 +372,15 @@ def count_pairedend(chrom,
                 mean_ospan = mean_ospan_list[lib]
                 sd_ospan = sd_ospan_list[lib]
                 read_length = read_length_list[lib]
-                if read.is_reverse or not read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or read.pnext + read_length - discflank < pos or read.tid != read.rnext:
+                if (read.is_reverse
+                    or not read.mate_is_reverse
+                    or read.is_secondary
+                    or read.is_unmapped
+                    or read.mate_is_unmapped
+                    or read.is_duplicate
+                    or read.pos + discflank > pos
+                    or read.pnext + read_length - discflank < pos
+                    or read.tid != read.rnext):
                     continue
                 else:
                     mate_mapq = get_mate_mapq(mybam, read)
@@ -398,7 +406,13 @@ def count_pairedend(chrom,
                     mean_ospan = mean_ospan_list[lib]
                     sd_ospan = sd_ospan_list[lib]
                     read_length = read_length_list[lib]
-                    if read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.pos + discflank > pos or mybam.getrname(read.rnext) != mate_chrom:
+                    if (read.is_reverse
+                        or read.is_secondary
+                        or read.is_unmapped
+                        or read.mate_is_unmapped
+                        or read.is_duplicate
+                        or read.pos + discflank > pos
+                        or mybam.getrname(read.rnext) != mate_chrom):
                         continue
 
                     mate_mapq = get_mate_mapq(mybam, read) # move this for speed
@@ -445,7 +459,15 @@ def count_pairedend(chrom,
                 mean_ospan = mean_ospan_list[lib]
                 sd_ospan = sd_ospan_list[lib]
                 read_length = read_length_list[lib]
-                if not read.is_reverse or read.mate_is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or read.pnext + discflank > pos or read.tid != read.rnext:
+                if (not read.is_reverse
+                    or read.mate_is_reverse
+                    or read.is_secondary
+                    or read.is_unmapped
+                    or read.mate_is_unmapped
+                    or read.is_duplicate
+                    or read.aend - discflank < pos
+                    or read.pnext + discflank > pos
+                    or read.tid != read.rnext):
                     continue
                 else:
                     mate_mapq = get_mate_mapq(mybam, read)
@@ -466,7 +488,13 @@ def count_pairedend(chrom,
             # now look at discordants for corresponding SV types
             if svtype != 'DEL':
                 for read in mybam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
-                    if not read.is_reverse or read.is_secondary or read.is_unmapped or read.mate_is_unmapped or read.is_duplicate or read.aend - discflank < pos or mybam.getrname(read.rnext) != mate_chrom:
+                    if (not read.is_reverse
+                        or read.is_secondary
+                        or read.is_unmapped
+                        or read.mate_is_unmapped
+                        or read.is_duplicate
+                        or read.aend - discflank < pos
+                        or mybam.getrname(read.rnext) != mate_chrom):
                         continue
 
                     mate_mapq = get_mate_mapq(mybam, read) # move this for speed
@@ -713,7 +741,19 @@ def sv_genotype(vcf_file,
                         spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordant and concordants
-        (conc_counter_a, disc_counter_a, conc_scaled_counter_a, disc_scaled_counter_a) = count_pairedend(chromA, posA, chromB, posB, o1, o2, var.info['SVTYPE'], mean_ospan_list, sd_ospan_list, z, discflank, read_length_list, rg_to_lib, bam_list)
+        (conc_counter_a,
+         disc_counter_a,
+         conc_scaled_counter_a,
+         disc_scaled_counter_a) = count_pairedend(chromA, posA,
+                                                  chromB, posB,
+                                                  o1, o2,
+                                                  var.info['SVTYPE'],
+                                                  mean_ospan_list,
+                                                  sd_ospan_list,
+                                                  z, discflank,
+                                                  read_length_list,
+                                                  rg_to_lib,
+                                                  bam_list)
 
         '''
         Breakend B
