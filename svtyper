@@ -613,11 +613,15 @@ def sv_genotype(vcf_file,
     rg_to_lib = dict()
     for bam in bam_list:
         for r in bam.header['RG']:
-            rg_to_lib[r['ID']] = r['LB']
-            if r['LB'] not in lib_to_rg:
-                lib_to_rg[r['LB']] = [r['ID']]
+            try:
+                lib=r['LB']
+            except KeyError, e:
+                lib=''
+            rg_to_lib[r['ID']] = lib
+            if lib not in lib_to_rg:
+                lib_to_rg[lib] = [r['ID']]
             else:
-                lib_to_rg[r['LB']].append(r['ID'])
+                lib_to_rg[lib].append(r['ID'])
 
     # define library insert distributions and read lengths
     mean_ospan_list = dict()
