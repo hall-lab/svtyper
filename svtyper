@@ -367,7 +367,7 @@ def count_pairedend(chrom,
     disc_scaled_counter = 0
     fetch_flank = max(mean_ospan_list.values()) + max(sd_ospan_list.values()) * z
 
-    if o1 == '+':
+    if o1 == '+' or svtype == 'INV':
         # survey for concordant read pairs
         for mybam in bam_list:
             for read in mybam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
@@ -454,7 +454,7 @@ def count_pairedend(chrom,
                                 disc_counter += 1
                                 disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
-    elif o1 == '-':
+    if o1 == '-' or svtype == 'INV':
         # survey for concordant read pairs
         for mybam in bam_list:
             for read in mybam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
@@ -787,14 +787,14 @@ def sv_genotype(vcf_file,
         (conc_counter_b, disc_counter_b, conc_scaled_counter_b, disc_scaled_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, var.info['SVTYPE'], mean_ospan_list, sd_ospan_list, z, discflank, read_length_list, rg_to_lib, bam_list)
 
         if debug:
-            print 'sr_a', ref_counter_a[posA], spl_counter_a[posA]
-            print 'pe_a', conc_counter_a, disc_counter_a
-            print 'sr_b', ref_counter_b[posB], spl_counter_b[posB]
-            print 'pe_b', conc_counter_b, disc_counter_b
-            print 'sr_a_scaled', ref_scaled_counter_a[posA], spl_scaled_counter_a[posA]
-            print 'pe_a_scaled', conc_scaled_counter_a, disc_scaled_counter_a
-            print 'sr_b_scaled', ref_scaled_counter_b[posB], spl_scaled_counter_b[posB]
-            print 'pe_b_scaled', conc_scaled_counter_b, disc_scaled_counter_b
+            print 'sr_a', '(ref, alt)', ref_counter_a[posA], spl_counter_a[posA]
+            print 'pe_a', '(ref, alt)', conc_counter_a, disc_counter_a
+            print 'sr_b', '(ref, alt)', ref_counter_b[posB], spl_counter_b[posB]
+            print 'pe_b', '(ref, alt)', conc_counter_b, disc_counter_b
+            print 'sr_a_scaled', '(ref, alt)', ref_scaled_counter_a[posA], spl_scaled_counter_a[posA]
+            print 'pe_a_scaled', '(ref, alt)', conc_scaled_counter_a, disc_scaled_counter_a
+            print 'sr_b_scaled', '(ref, alt)', ref_scaled_counter_b[posB], spl_scaled_counter_b[posB]
+            print 'pe_b_scaled', '(ref, alt)', conc_scaled_counter_b, disc_scaled_counter_b
 
         # merge the breakend support
         split_ref = 0 # set these to zero unless there are informative alt bases for the ev type
@@ -845,16 +845,24 @@ def sv_genotype(vcf_file,
                 var.genotype(sample).set_format('RP', int(disc_scaled_ref))
 
             # assign genotypes
-            sample_qual = -10 * (gt_lplist[0] - math.log(sum(10**x for x in gt_lplist),10) ) # phred-scaled probability site is non-reference in this sample
-            var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - math.log(sum(10**x for x in gt_lplist),10) ))
-            var.genotype(sample).set_format('SQ', sample_qual)
-            var.qual += sample_qual
-            if gt_idx == 1:
-                var.genotype(sample).set_format('GT', '0/1')
-            elif gt_idx == 2:
-                var.genotype(sample).set_format('GT', '1/1')
-            elif gt_idx == 0:
-                var.genotype(sample).set_format('GT', '0/0')
+            gt_sum = sum(10**x for x in gt_lplist)
+            # catch overflow
+            if gt_sum > 0:
+                gt_sum_log = math.log(gt_sum, 10)
+                sample_qual = -10 * (gt_lplist[0] - gt_sum_log) # phred-scaled probability site is non-reference in this sample
+                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - gt_sum_log))
+                var.genotype(sample).set_format('SQ', sample_qual)
+                var.qual += sample_qual
+                if gt_idx == 1:
+                    var.genotype(sample).set_format('GT', '0/1')
+                elif gt_idx == 2:
+                    var.genotype(sample).set_format('GT', '1/1')
+                elif gt_idx == 0:
+                    var.genotype(sample).set_format('GT', '0/0')
+            else:
+                var.genotype(sample).set_format('GQ', '.')
+                var.genotype(sample).set_format('SQ', '.')
+                var.genotype(sample).set_format('GT', './.')
         else:
             var.genotype(sample).set_format('GT', './.')
             var.qual = 0
