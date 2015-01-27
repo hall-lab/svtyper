@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
 import pysam
-import numpy as np
 import argparse, sys
 import math, time, re
 # import multiprocessing
 from collections import Counter
 from argparse import RawTextHelpFormatter
-from scipy.stats import norm
+# from scipy.stats import norm # deprecated i think? 2015-01-26
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.1 $"
@@ -24,7 +23,7 @@ version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-S', '--split_bam', type=str, required=True, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
-    parser.add_argument('-v', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
+    parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
@@ -335,12 +334,16 @@ def get_mate_mapq(bam, read):
 
 # calculate the probability that a read is concordant at a deletion breakpoint,
 # given the putative deletion size and insert distribution of the library.
-def p_concordant(read_ospan, var_length, mean_ospan, sd_ospan):
-    conc_z = (read_ospan - mean_ospan) / sd_ospan
-    p = 1 - norm.cdf(conc_z)
-
-    disc_z = (read_ospan - var_length - mean_ospan) / sd_ospan
-    q = norm.cdf(disc_z)
+def p_concordant(read_ospan, var_length, ins_dens):
+    s = 0
+    t = 0
+    for i in list(ins_dens):
+        if i <= read_ospan:
+            s += ins_dens[i]
+        if i <= read_ospan - var_length:
+            t += ins_dens[i]
+    p = 1 - s
+    q = t
 
     if p + q == 0:
         return 0
@@ -356,6 +359,8 @@ def count_pairedend(chrom,
                     svtype,
                     mean_ospan_list,
                     sd_ospan_list,
+                    ins_hist_list,
+                    ins_dens_list,
                     z,
                     discflank,
                     read_length_list,
@@ -372,6 +377,8 @@ def count_pairedend(chrom,
         for mybam in bam_list:
             for read in mybam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
                 lib = rg_to_lib[read.opt('RG')] # get the read's library
+                ins_hist = ins_hist_list[lib]
+                ins_dens = ins_dens_list[lib]
                 mean_ospan = mean_ospan_list[lib]
                 sd_ospan = sd_ospan_list[lib]
                 read_length = read_length_list[lib]
@@ -388,7 +395,7 @@ def count_pairedend(chrom,
                 else:
                     mate_mapq = get_mate_mapq(mybam, read)
                     ospan = get_mate_5prime(mybam, read) - read.pos
-                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
+                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), ins_dens)
 
                     ispan1 = read.pos + discflank
                     ispan2 = get_mate_5prime(mybam, read) - discflank - 1 # speed up here
@@ -406,6 +413,8 @@ def count_pairedend(chrom,
             if svtype != 'DEL':
                 for read in mybam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
                     lib = rg_to_lib[read.opt('RG')] # get the read's library
+                    ins_hist = ins_hist_list[lib]
+                    ins_dens = ins_dens_list[lib]
                     mean_ospan = mean_ospan_list[lib]
                     sd_ospan = sd_ospan_list[lib]
                     read_length = read_length_list[lib]
@@ -459,6 +468,8 @@ def count_pairedend(chrom,
         for mybam in bam_list:
             for read in mybam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
                 lib = rg_to_lib[read.opt('RG')] # get the read's library
+                ins_hist = ins_hist_list[lib]
+                ins_dens = ins_dens_list[lib]
                 mean_ospan = mean_ospan_list[lib]
                 sd_ospan = sd_ospan_list[lib]
                 read_length = read_length_list[lib]
@@ -475,7 +486,7 @@ def count_pairedend(chrom,
                 else:
                     mate_mapq = get_mate_mapq(mybam, read)
                     ospan = read.aend - read.pnext
-                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), mean_ospan, sd_ospan)
+                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), ins_dens)
 
                     ispan1 = read.aend - discflank - 1
                     ispan2 = read.pnext + discflank
@@ -539,18 +550,105 @@ def count_pairedend(chrom,
 
     return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
 
-def upper_mad(x):
-    med = np.median(x)
-    return med, np.median(x[x > med] - med)
+# get the number of entries in the set
+def countRecords(myCounter):
+    numRecords = sum(myCounter.values())
+    return numRecords
 
-def insert_dist(bam, rg):
+# median is approx 50th percentile, except when it is between
+# two values in which case it's the mean of them.
+def median(myCounter):
+    #length is the number of bases we're looking at
+    numEntries = countRecords(myCounter)
+    
+    # the ordinal value of the middle element
+    # if 2 middle elements, then non-integer
+    limit = 0.5 * numEntries
+    
+    # a list of the values, sorted smallest to largest
+    # note that this list contains unique elements only
+    valueList = list(myCounter)
+    valueList.sort()
+    
+    # number of entries we've gone through
+    runEntries = 0
+    # index of the current value in valueList
+    i = 0
+    # initiate v, in case list only has one element
+    v = valueList[i]
+    
+    # move through the value list, iterating by number of
+    # entries for each value
+    while runEntries < limit:
+        v = valueList[i]
+        runEntries += myCounter[v]
+        i += 1
+    if runEntries == limit:
+        return (v + valueList[i]) / 2.0
+    else:
+        return v
+
+# calculate upper median absolute deviation
+def upper_mad(myCounter, myMedian):
+    residCounter = Counter()
+    for x in myCounter:
+        if x > myMedian:
+            residCounter[abs(x - myMedian)] += myCounter[x]
+    return median(residCounter)
+
+# sum of the entries
+def sumRecords(myCounter):
+    mySum = 0.0
+    for c in myCounter:
+        mySum += c * float(myCounter[c])
+    return mySum
+
+# calculate the arithmetic mean, given a counter and the
+# length of the feature (chromosome or genome)
+# for x percentile, x% of the elements in the set are
+# <= the output value
+def mean(myCounter):
+    # the number of total entries in the set is the
+    # sum of the occurrences for each value
+    numRecords = countRecords(myCounter)
+    
+    # u holds the mean
+    u = float()
+
+    u = sumRecords(myCounter) / numRecords
+    return u
+
+def stdev(myCounter):
+    # the number of total entries in the set is the
+    # sum of the occurrences for each value
+    numRecords = countRecords(myCounter)
+    
+    # u holds the mean
+    u = mean(myCounter)
+    sumVar = 0.0
+    
+    # stdev is sqrt(sum((x-u)^2)/#elements)
+    for c in myCounter:
+        sumVar += myCounter[c] * (c - u)**2
+    myVariance = float(sumVar) / numRecords
+    stdev = myVariance**(0.5)
+    return stdev
+
+# generate empirical histogram of the sample's insert size distribution
+# CC NOTE: REMOVE BEYOND Z stdev!!!!
+def insert_hist(bam, rg):
     num_samp = 1000000
     counter = 0
     skip = 5000000
     skip_counter = 0
     mads = 10
     ins_list = []
-    for read in bam.fetch():
+
+    # Each entry in valueCounts is a value, and its count is
+    # the number of instances of that value observed in the dataset.
+    # So valueCount[5] is the number of times 5 has been seen in the data.
+    valueCounts = Counter()
+    for read in bam:
         if skip_counter < skip:
             skip_counter += 1
             continue
@@ -563,23 +661,25 @@ def insert_dist(bam, rg):
             or read.opt('RG') not in rg):
             continue
         else:
-            ins_list.append(read.tlen)
+            valueCounts[read.tlen] += 1
             counter += 1
         if counter == num_samp:
             break
+    
     # remove outliers
-    ins_list = np.array(ins_list)
-    ins_list.sort()
-    med, umad = upper_mad(ins_list)
-    upper_cutoff = med + mads * umad
-    ins_list = ins_list[ins_list < upper_cutoff]
-    mean = sum(ins_list)/float(len(ins_list))
-    v = 0
-    for i in ins_list:
-        v += (i-mean)**2
-    variance = v/float(len(ins_list))
-    stdev = variance**(0.5)
-    return (mean, stdev)
+    med = median(valueCounts)
+    u_mad = upper_mad(valueCounts, med)
+    for x in [x for x in list(valueCounts) if x > med + mads * u_mad]:
+        del valueCounts[x]
+
+    return valueCounts
+
+# calculate the density curve for and insert size histogram
+def insert_density(ins_hist):
+    dens = Counter()
+    for i in list(ins_hist):
+        dens[i] = float(ins_hist[i])/countRecords(ins_hist)
+    return dens
 
 def get_read_length(bam, rg):
     max_rl = 0
@@ -627,16 +727,18 @@ def sv_genotype(vcf_file,
                 lib_to_rg[lib].append(r['ID'])
 
     # define library insert distributions and read lengths
+    ins_hist_list = dict()
+    ins_dens_list = dict()
     mean_ospan_list = dict()
     sd_ospan_list = dict()
     read_length_list = dict()
     for bam in bam_list:
         for lib in lib_to_rg:
-            i_dist = insert_dist(bam, lib_to_rg[lib])
-            mean_ospan_list[lib] = i_dist[0]
-            sd_ospan_list[lib] = i_dist[1]
+            ins_hist_list[lib] = insert_hist(bam, lib_to_rg[lib])
+            ins_dens_list[lib] = insert_density(ins_hist_list[lib])
+            mean_ospan_list[lib] = mean(ins_hist_list[lib])
+            sd_ospan_list[lib] = stdev(ins_hist_list[lib])
             read_length_list[lib] = get_read_length(bam, lib_to_rg[lib])
-
     z = 3
     padding = 30
     in_header = True
@@ -749,6 +851,8 @@ def sv_genotype(vcf_file,
                                                   var.info['SVTYPE'],
                                                   mean_ospan_list,
                                                   sd_ospan_list,
+                                                  ins_hist_list,
+                                                  ins_dens_list,
                                                   z, discflank,
                                                   read_length_list,
                                                   rg_to_lib,
@@ -784,7 +888,21 @@ def sv_genotype(vcf_file,
                         spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
         # Count paired-end discordants and concordants
-        (conc_counter_b, disc_counter_b, conc_scaled_counter_b, disc_scaled_counter_b) = count_pairedend(chromB, posB, chromA, posA, o2, o1, var.info['SVTYPE'], mean_ospan_list, sd_ospan_list, z, discflank, read_length_list, rg_to_lib, bam_list)
+        (conc_counter_b,
+         disc_counter_b,
+         conc_scaled_counter_b,
+         disc_scaled_counter_b) = count_pairedend(chromB, posB,
+                                                  chromA, posA,
+                                                  o2, o1,
+                                                  var.info['SVTYPE'],
+                                                  mean_ospan_list,
+                                                  sd_ospan_list,
+                                                  ins_hist_list,
+                                                  ins_dens_list,
+                                                  z, discflank,
+                                                  read_length_list,
+                                                  rg_to_lib,
+                                                  bam_list)
 
         if debug:
             print 'sr_a', '(ref, alt)', ref_counter_a[posA], spl_counter_a[posA]
