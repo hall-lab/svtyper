@@ -3,9 +3,10 @@
 import pysam
 import argparse, sys
 import math, time, re
+import multiprocessing as mp
 # from multiprocessing import Process, Manager
-import threading
-import Queue
+# import threading
+# import Queue
 from collections import Counter
 from argparse import RawTextHelpFormatter
 
@@ -968,13 +969,18 @@ def sv_genotype(vcf_file,
     breakend_dict = {} # cache to hold unmatched generic breakends for genotyping
     vcf = Vcf()
 
-    work = Queue.Queue()
-    results = Queue.Queue()
+    # work = Queue.Queue()
+    # results = Queue.Queue()
 
+    manager = mp.Manager()
+    results = manager.list()
+    work = manager.Queue(num_workers)
+    
+    pool = []
     for i in xrange(num_workers):
-        t = threading.Thread(target=process_variant, args=(work,))
-        t.daemon = True
-        t.start()
+        p = mp.Process(target=process_variant, args=(work,))
+        p.daemon = True
+        p.start()
     
     for line in vcf_file:
         if in_header:
@@ -1086,6 +1092,9 @@ def sv_genotype(vcf_file,
         #                 detailed,
         #                 debug,
         #                 vcf_out)
+
+    for  p in pool:
+        p.join()
     
     vcf_out.close()
     
