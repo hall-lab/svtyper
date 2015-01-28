@@ -3,10 +3,11 @@
 import pysam
 import argparse, sys
 import math, time, re
-# import multiprocessing
+# from multiprocessing import Process, Manager
+import threading
+import Queue
 from collections import Counter
 from argparse import RawTextHelpFormatter
-# from scipy.stats import norm # deprecated i think? 2015-01-26
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.1 $"
@@ -25,6 +26,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-S', '--split_bam', type=str, required=True, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
+    parser.add_argument('-t', '--threads', type=int, required=False, default=1, help='number of parallel threads (default: 1)')
     parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
@@ -637,9 +639,11 @@ def stdev(myCounter):
 # generate empirical histogram of the sample's insert size distribution
 # CC NOTE: REMOVE BEYOND Z stdev!!!!
 def insert_hist(bam, rg):
-    num_samp = 1000000
+    # num_samp = 1000000
+    num_samp = 10000
     counter = 0
-    skip = 5000000
+    # skip = 5000000
+    skip = 0
     skip_counter = 0
     mads = 10
     ins_list = []
@@ -694,123 +698,33 @@ def get_read_length(bam, rg):
             break
         counter += 1
     return max_rl
-        
-# primary function
-def sv_genotype(vcf_file,
-                bam_string,
-                spl_bam_string,
-                vcf_out,
-                splflank,
-                discflank,
-                split_weight,
-                disc_weight,
-                detailed,
-                debug):
-    
-    # parse the comma separated inputs
-    bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
-    spl_bam_list = [pysam.Samfile(b, 'rb') for b in spl_bam_string.split(',')]
 
-    # parse the library design from the BAMs
-    lib_to_rg = dict()
-    rg_to_lib = dict()
-    for bam in bam_list:
-        for r in bam.header['RG']:
-            try:
-                lib=r['LB']
-            except KeyError, e:
-                lib=''
-            rg_to_lib[r['ID']] = lib
-            if lib not in lib_to_rg:
-                lib_to_rg[lib] = [r['ID']]
-            else:
-                lib_to_rg[lib].append(r['ID'])
+def process_variant(in_queue):
+    while True:
+        (chromA, posA,
+        chromB, posB,
+        o1, o2,
+        var, var2,
+        mean_ospan_list,
+        sd_ospan_list,
+        ins_hist_list,
+        ins_dens_list,
+        z,
+        read_length_list,
+        rg_to_lib,
+        bam_list,
+        spl_bam_list,
+        splflank,
+        discflank,
+        split_weight,
+        disc_weight,
+        detailed,
+        debug,
+        vcf_out) = in_queue.get()
 
-    # define library insert distributions and read lengths
-    ins_hist_list = dict()
-    ins_dens_list = dict()
-    mean_ospan_list = dict()
-    sd_ospan_list = dict()
-    read_length_list = dict()
-    for bam in bam_list:
-        for lib in lib_to_rg:
-            ins_hist_list[lib] = insert_hist(bam, lib_to_rg[lib])
-            ins_dens_list[lib] = insert_density(ins_hist_list[lib])
-            mean_ospan_list[lib] = mean(ins_hist_list[lib])
-            sd_ospan_list[lib] = stdev(ins_hist_list[lib])
-            read_length_list[lib] = get_read_length(bam, lib_to_rg[lib])
-    z = 3
-    padding = 30
-    in_header = True
-    header = []
-    breakend_dict = {} # cache to hold unmatched generic breakends for genotyping
-    vcf = Vcf()
-
-    # first get the sample name from the bam file
-    sample = bam_list[0].header['RG'][0]['SM']
-
-    for line in vcf_file:
-        if in_header:
-            if line[0] == '#':
-                header.append(line) 
-                if line[1] != '#':
-                    vcf_samples = line.rstrip().split('\t')[9:]
-                continue
-            else:
-                in_header = False
-                vcf.add_header(header)
-                if detailed:
-                    vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
-                    vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
-                    vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
-                    vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
-                vcf.add_format('GQ', 1, 'Float', 'Genotype quality')
-                vcf.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
-                vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
-                vcf.add_format('DP', 1, 'Integer', 'Read depth')
-                vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
-                vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
-                vcf_out.write(vcf.get_header() + '\n')
-
-        v = line.rstrip().split('\t')
-        var = Variant(v, vcf)
-
-        # genotype generic breakends
-        if var.info['SVTYPE']=='BND':
-            if var.info['MATEID'] in breakend_dict:
-                var2 = var
-                var = breakend_dict[var.info['MATEID']]
-                chromA = var.chrom
-                chromB = var2.chrom
-                posA = var.pos
-                posB = var2.pos
-
-                # infer the strands from the alt allele
-                if var.alt[-1] == '[' or var.alt[-1] == ']':
-                    o1 = '+'
-                else: o1 = '-'
-                if var2.alt[-1] == '[' or var2.alt[-1] == ']':
-                    o2 = '+'
-                else: o2 = '-'
-            else:
-                breakend_dict[var.var_id] = var
-                continue
-        else:
-            chromA = var.chrom
-            chromB = var.chrom
-            posA = var.pos
-            posB = int(var.get_info('END'))
-            if var.get_info('SVTYPE') == 'DEL':
-                o1, o2 =  '+', '-'
-            elif var.get_info('SVTYPE') == 'DUP':
-                o1, o2 =  '-', '+'
-            elif var.get_info('SVTYPE') == 'INV':
-                o1, o2 =  '+', '+' # currently ignores the other side for two-sided inversions
-
-        # increment the negative strand values (note position in VCF should be the base immediately left of the breakpoint junction)
-        if o1 == '-': posA += 1
-        if o2 == '-': posB += 1
-        # if debug: print posA, posB
+        # CC NOTE: UPDATE THIS FOR MULTI SAMPLE
+        sample = bam_list[0].header['RG'][0]['SM']
+        padding = 30
 
         '''
         Breakend A
@@ -833,11 +747,9 @@ def sv_genotype(vcf_file,
             for spl_read in spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
                 if not spl_read.is_duplicate and not spl_read.is_unmapped:
                     if o1 == '+' and spl_read.cigar[0][0] == 0:
-                        # if debug: print 'o1+', spl_read.aend
                         spl_counter_a[spl_read.aend] += 1
                         spl_scaled_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
                     elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                        # if debug: print 'o1-', spl_read.pos + 1
                         spl_counter_a[spl_read.pos + 1] += 1
                         spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
@@ -938,7 +850,7 @@ def sv_genotype(vcf_file,
         if int(split_scaled_alt) == 0 and int(disc_scaled_alt) == 0: # if no alt alleles, set reference
             split_scaled_ref = ref_scaled_counter_a[posA] + ref_scaled_counter_b[posB]
             disc_scaled_ref = conc_scaled_counter_a + conc_scaled_counter_b
-            
+
 
         if split_scaled_alt + split_scaled_ref + disc_scaled_alt + disc_scaled_ref > 0:
             # get bayesian classifier
@@ -1001,6 +913,180 @@ def sv_genotype(vcf_file,
             var2.active_formats = var.active_formats
             var2.genotype = var.genotype
             vcf_out.write(var2.get_var_string() + '\n')
+
+        in_queue.task_done()
+    return
+
+# primary function
+def sv_genotype(vcf_file,
+                bam_string,
+                spl_bam_string,
+                vcf_out,
+                splflank,
+                discflank,
+                split_weight,
+                disc_weight,
+                detailed,
+                debug,
+                num_workers):
+    
+    # parse the comma separated inputs
+    bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
+    spl_bam_list = [pysam.Samfile(b, 'rb') for b in spl_bam_string.split(',')]
+
+    # parse the library design from the BAMs
+    lib_to_rg = dict()
+    rg_to_lib = dict()
+    for bam in bam_list:
+        for r in bam.header['RG']:
+            try:
+                lib=r['LB']
+            except KeyError, e:
+                lib=''
+            rg_to_lib[r['ID']] = lib
+            if lib not in lib_to_rg:
+                lib_to_rg[lib] = [r['ID']]
+            else:
+                lib_to_rg[lib].append(r['ID'])
+
+    # define library insert distributions and read lengths
+    ins_hist_list = dict()
+    ins_dens_list = dict()
+    mean_ospan_list = dict()
+    sd_ospan_list = dict()
+    read_length_list = dict()
+    for bam in bam_list:
+        for lib in lib_to_rg:
+            ins_hist_list[lib] = insert_hist(bam, lib_to_rg[lib])
+            ins_dens_list[lib] = insert_density(ins_hist_list[lib])
+            mean_ospan_list[lib] = mean(ins_hist_list[lib])
+            sd_ospan_list[lib] = stdev(ins_hist_list[lib])
+            read_length_list[lib] = get_read_length(bam, lib_to_rg[lib])
+    z = 3
+    in_header = True
+    header = []
+    breakend_dict = {} # cache to hold unmatched generic breakends for genotyping
+    vcf = Vcf()
+
+    work = Queue.Queue()
+    results = Queue.Queue()
+
+    for i in xrange(num_workers):
+        t = threading.Thread(target=process_variant, args=(work,))
+        t.daemon = True
+        t.start()
+    
+    for line in vcf_file:
+        if in_header:
+            if line[0] == '#':
+                header.append(line) 
+                if line[1] != '#':
+                    vcf_samples = line.rstrip().split('\t')[9:]
+                continue
+            else:
+                in_header = False
+                vcf.add_header(header)
+                if detailed:
+                    vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
+                    vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
+                    vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
+                    vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
+                vcf.add_format('GQ', 1, 'Float', 'Genotype quality')
+                vcf.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
+                vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
+                vcf.add_format('DP', 1, 'Integer', 'Read depth')
+                vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
+                vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
+                vcf_out.write(vcf.get_header() + '\n')
+
+        v = line.rstrip().split('\t')
+        var = Variant(v, vcf)
+
+        # genotype generic breakends
+        if var.info['SVTYPE']=='BND':
+            if var.info['MATEID'] in breakend_dict:
+                var2 = var
+                var = breakend_dict[var.info['MATEID']]
+                chromA = var.chrom
+                chromB = var2.chrom
+                posA = var.pos
+                posB = var2.pos
+
+                # infer the strands from the alt allele
+                if var.alt[-1] == '[' or var.alt[-1] == ']':
+                    o1 = '+'
+                else: o1 = '-'
+                if var2.alt[-1] == '[' or var2.alt[-1] == ']':
+                    o2 = '+'
+                else: o2 = '-'
+            else:
+                breakend_dict[var.var_id] = var
+                continue
+        else:
+            chromA = var.chrom
+            chromB = var.chrom
+            posA = var.pos
+            posB = int(var.get_info('END'))
+            var2 = None
+            if var.get_info('SVTYPE') == 'DEL':
+                o1, o2 =  '+', '-'
+            elif var.get_info('SVTYPE') == 'DUP':
+                o1, o2 =  '-', '+'
+            elif var.get_info('SVTYPE') == 'INV':
+                o1, o2 =  '+', '+'
+
+        # increment the negative strand values (note position in VCF should be the base immediately left of the breakpoint junction)
+        if o1 == '-': posA += 1
+        if o2 == '-': posB += 1
+
+        # manager = Manager()
+        # results = manager.list()
+        # work = manager.Queue(num_workers)
+
+        bp = [chromA, posA,
+              chromB, posB,
+              o1, o2,
+              var, var2,
+              mean_ospan_list,
+              sd_ospan_list,
+              ins_hist_list,
+              ins_dens_list,
+              z,
+              read_length_list,
+              rg_to_lib,
+              bam_list,
+              spl_bam_list,
+              splflank,
+              discflank,
+              split_weight,
+              disc_weight,
+              detailed,
+              debug,
+              vcf_out]
+        
+        work.put(bp)
+        
+        # process_variant(chromA, posA,
+        #                 chromB, posB,
+        #                 o1, o2,
+        #                 var, var2,
+        #                 mean_ospan_list,
+        #                 sd_ospan_list,
+        #                 ins_hist_list,
+        #                 ins_dens_list,
+        #                 z,
+        #                 read_length_list,
+        #                 rg_to_lib,
+        #                 bam_list,
+        #                 spl_bam_list,
+        #                 splflank,
+        #                 discflank,
+        #                 split_weight,
+        #                 disc_weight,
+        #                 detailed,
+        #                 debug,
+        #                 vcf_out)
+    
     vcf_out.close()
     
     return
@@ -1022,7 +1108,8 @@ def main():
                 args.split_weight,
                 args.disc_weight,
                 args.detailed,
-                args.debug)
+                args.debug,
+                args.threads)
 
     # close the files
     args.input_vcf.close()
