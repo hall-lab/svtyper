@@ -26,7 +26,8 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-S', '--split_bam', type=str, required=True, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
-    parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
+    # parser.add_argument('-o', '--output_vcf', type=str, help='output VCF to write (default: stdout)')
+    # parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-t', '--threads', type=int, required=False, default=1, help='number of parallel threads (default: 1)')
     parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
@@ -104,52 +105,52 @@ class Vcf(object):
 
     def add_info(self, id, number, type, desc):
         if id not in [i.id for i in self.info_list]:
-            inf = self.Info(id, number, type, desc)
+            inf = Info(id, number, type, desc)
             self.info_list.append(inf)
 
     def add_alt(self, id, desc):
         if id not in [a.id for a in self.alt_list]:
-            alt = self.Alt(id, desc)
+            alt = Alt(id, desc)
             self.alt_list.append(alt)
 
     def add_format(self, id, number, type, desc):
         if id not in [f.id for f in self.format_list]:
-            fmt = self.Format(id, number, type, desc)
+            fmt = Format(id, number, type, desc)
             self.format_list.append(fmt)
 
     def add_sample(self, name):
         self.sample_list.append(name)
 
-    class Info(object):
-        def __init__(self, id, number, type, desc):
-            self.id = str(id)
-            self.number = str(number)
-            self.type = str(type)
-            self.desc = str(desc)
-            # strip the double quotes around the string if present
-            if self.desc.startswith('"') and self.desc.endswith('"'):
-                self.desc = self.desc[1:-1]
-            self.hstring = '##INFO=<ID=' + self.id + ',Number=' + self.number + ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
+class Info(object):
+    def __init__(self, id, number, type, desc):
+        self.id = str(id)
+        self.number = str(number)
+        self.type = str(type)
+        self.desc = str(desc)
+        # strip the double quotes around the string if present
+        if self.desc.startswith('"') and self.desc.endswith('"'):
+            self.desc = self.desc[1:-1]
+        self.hstring = '##INFO=<ID=' + self.id + ',Number=' + self.number + ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
 
-    class Alt(object):
-        def __init__(self, id, desc):
-            self.id = str(id)
-            self.desc = str(desc)
-            # strip the double quotes around the string if present
-            if self.desc.startswith('"') and self.desc.endswith('"'):
-                self.desc = self.desc[1:-1]
-            self.hstring = '##ALT=<ID=' + self.id + ',Description=\"' + self.desc + '\">'
+class Alt(object):
+    def __init__(self, id, desc):
+        self.id = str(id)
+        self.desc = str(desc)
+        # strip the double quotes around the string if present
+        if self.desc.startswith('"') and self.desc.endswith('"'):
+            self.desc = self.desc[1:-1]
+        self.hstring = '##ALT=<ID=' + self.id + ',Description=\"' + self.desc + '\">'
 
-    class Format(object):
-        def __init__(self, id, number, type, desc):
-            self.id = str(id)
-            self.number = str(number)
-            self.type = str(type)
-            self.desc = str(desc)
-            # strip the double quotes around the string if present
-            if self.desc.startswith('"') and self.desc.endswith('"'):
-                self.desc = self.desc[1:-1]
-            self.hstring = '##FORMAT=<ID=' + self.id + ',Number=' + self.number + ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
+class Format(object):
+    def __init__(self, id, number, type, desc):
+        self.id = str(id)
+        self.number = str(number)
+        self.type = str(type)
+        self.desc = str(desc)
+        # strip the double quotes around the string if present
+        if self.desc.startswith('"') and self.desc.endswith('"'):
+            self.desc = self.desc[1:-1]
+        self.hstring = '##FORMAT=<ID=' + self.id + ',Number=' + self.number + ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
 
 class Variant(object):
     def __init__(self, var_list, vcf):
@@ -702,6 +703,21 @@ def get_read_length(bam, rg):
 
 def process_variant(in_queue):
     while True:
+        # print "qsize:", in_queue.qsize()
+        # try:
+        #     bp = in_queue.get(False)
+        # except IOError:
+        #     break
+        # if bp is None:
+        #     break
+        # if in_queue.empty():
+        #     break
+
+        try:
+            bp = in_queue.get()
+        except EOFError:
+            break
+        
         (chromA, posA,
         chromB, posB,
         o1, o2,
@@ -713,15 +729,18 @@ def process_variant(in_queue):
         z,
         read_length_list,
         rg_to_lib,
-        bam_list,
-        spl_bam_list,
+        bam_string,
+        spl_bam_string,
         splflank,
         discflank,
         split_weight,
         disc_weight,
         detailed,
-        debug,
-        vcf_out) = in_queue.get()
+        debug) = bp
+        
+        # parse the comma separated inputs
+        bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
+        spl_bam_list = [pysam.Samfile(b, 'rb') for b in spl_bam_string.split(',')]
 
         # CC NOTE: UPDATE THIS FOR MULTI SAMPLE
         sample = bam_list[0].header['RG'][0]['SM']
@@ -908,21 +927,23 @@ def process_variant(in_queue):
                 var.genotype(sample).set_format('AP', 0)
                 var.genotype(sample).set_format('RP', 0)
 
-        vcf_out.write(var.get_var_string() + '\n')
+        sys.stdout.write(var.get_var_string() + '\n')
         if var.info['SVTYPE'] == 'BND':
             var2.qual = var.qual
             var2.active_formats = var.active_formats
             var2.genotype = var.genotype
-            vcf_out.write(var2.get_var_string() + '\n')
+            sys.stdout.write(var2.get_var_string() + '\n')
 
-        in_queue.task_done()
+
+        for bam in bam_list + spl_bam_list:
+            bam.close()
+
     return
 
 # primary function
 def sv_genotype(vcf_file,
                 bam_string,
                 spl_bam_string,
-                vcf_out,
                 splflank,
                 discflank,
                 split_weight,
@@ -975,11 +996,11 @@ def sv_genotype(vcf_file,
     manager = mp.Manager()
     results = manager.list()
     work = manager.Queue(num_workers)
+    # work = list()
     
     pool = []
     for i in xrange(num_workers):
         p = mp.Process(target=process_variant, args=(work,))
-        p.daemon = True
         p.start()
     
     for line in vcf_file:
@@ -1003,7 +1024,7 @@ def sv_genotype(vcf_file,
                 vcf.add_format('DP', 1, 'Integer', 'Read depth')
                 vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
                 vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
-                vcf_out.write(vcf.get_header() + '\n')
+                sys.stdout.write(vcf.get_header() + '\n')
 
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
@@ -1060,17 +1081,18 @@ def sv_genotype(vcf_file,
               z,
               read_length_list,
               rg_to_lib,
-              bam_list,
-              spl_bam_list,
+              bam_string,
+              spl_bam_string,
               splflank,
               discflank,
               split_weight,
               disc_weight,
               detailed,
-              debug,
-              vcf_out]
-        
+              debug]
+
+        # print 'hi', var
         work.put(bp)
+        # work.append(bp)
         
         # process_variant(chromA, posA,
         #                 chromB, posB,
@@ -1093,10 +1115,16 @@ def sv_genotype(vcf_file,
         #                 debug,
         #                 vcf_out)
 
+
+    # for i in xrange(num_workers):
+    #     work.put(None)    
     for  p in pool:
         p.join()
+
+    # p = mp.Pool(num_workers)
+    # p.map(process_variant, work)
     
-    vcf_out.close()
+    # vcf_out.close()
     
     return
 
@@ -1111,7 +1139,7 @@ def main():
     sv_genotype(args.input_vcf,
                 args.bam,
                 args.split_bam,
-                args.output_vcf,
+                # args.output_vcf,
                 args.splflank,
                 args.discflank,
                 args.split_weight,
