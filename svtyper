@@ -23,6 +23,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-S', '--split_bam', type=str, required=True, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
+    parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-t', '--threads', type=int, required=False, default=1, help='number of parallel threads (default: 1)')
     parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
@@ -696,7 +697,7 @@ def get_read_length(bam, rg):
         counter += 1
     return max_rl
 
-def process_variant(in_queue):
+def process_variant(in_queue, results):
     while True:
         try:
             bp = in_queue.get()
@@ -709,24 +710,25 @@ def process_variant(in_queue):
 
         # populate variables
         (chromA, posA,
-        chromB, posB,
-        o1, o2,
-        var, var2,
-        mean_ospan_list,
-        sd_ospan_list,
-        ins_hist_list,
-        ins_dens_list,
-        z,
-        read_length_list,
-        rg_to_lib,
-        bam_string,
-        spl_bam_string,
-        splflank,
-        discflank,
-        split_weight,
-        disc_weight,
-        detailed,
-        debug) = bp
+         chromB, posB,
+         o1, o2,
+         var, var2,
+         mean_ospan_list,
+         sd_ospan_list,
+         ins_hist_list,
+         ins_dens_list,
+         z,
+         read_length_list,
+         rg_to_lib,
+         bam_string,
+         spl_bam_string,
+         splflank,
+         discflank,
+         split_weight,
+         disc_weight,
+         detailed,
+         debug,
+         output_vcf) = bp
         
         # parse the comma separated inputs
         bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
@@ -917,19 +919,25 @@ def process_variant(in_queue):
                 var.genotype(sample).set_format('AP', 0)
                 var.genotype(sample).set_format('RP', 0)
 
-        sys.stdout.write(var.get_var_string() + '\n')
+        # sys.stdout.write(var.get_var_string() + '\n')
+        results.put(var.get_var_string())
         if var.info['SVTYPE'] == 'BND':
             var2.qual = var.qual
             var2.active_formats = var.active_formats
             var2.genotype = var.genotype
-            sys.stdout.write(var2.get_var_string() + '\n')
+            # sys.stdout.write(var2.get_var_string() + '\n')
+            results.put(var2.get_var_string())
 
+        # results.put([var, var2])
+        # results.put(var)
+        # results.put(var2)
     return
 
 # primary function
 def sv_genotype(vcf_file,
                 bam_string,
                 spl_bam_string,
+                output_vcf,
                 splflank,
                 discflank,
                 split_weight,
@@ -976,17 +984,13 @@ def sv_genotype(vcf_file,
     breakend_dict = {} # cache to hold unmatched generic breakends for genotyping
     vcf = Vcf()
 
-    # work = Queue.Queue()
-    # results = Queue.Queue()
-
     manager = mp.Manager()
-    results = manager.list()
+    results = mp.Queue()
     work = manager.Queue(num_workers)
-    # work = list()
     
     pool = []
     for i in xrange(num_workers):
-        p = mp.Process(target=process_variant, args=(work,))
+        p = mp.Process(target=process_variant, args=(work,results))
         p.start()
     
     for line in vcf_file:
@@ -1010,7 +1014,7 @@ def sv_genotype(vcf_file,
                 vcf.add_format('DP', 1, 'Integer', 'Read depth')
                 vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
                 vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
-                sys.stdout.write(vcf.get_header() + '\n')
+                output_vcf.write(vcf.get_header() + '\n')
 
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
@@ -1070,19 +1074,36 @@ def sv_genotype(vcf_file,
               split_weight,
               disc_weight,
               detailed,
-              debug]
+              debug,
+              output_vcf]
 
         work.put(bp)
 
+        # stream the output on the fly
+        while True:
+            if results.empty() == True:
+                break
+            result = results.get()
+            output_vcf.write(result + '\n')
+        
     # put poison pill into the end of workers
     for i in xrange(num_workers):
         work.put(None)    
+        
+    # put results poison pill
+    results.put(None)
+
+    # write the remaining results in the buffer
+    while True:
+        result = results.get()
+        if result is None:
+            break
+        output_vcf.write(result + '\n')
 
     for  p in pool:
         p.join()
 
-    # vcf_out.close()
-    
+    output_vcf.close()
     return
 
 # --------------------------------------
@@ -1096,7 +1117,7 @@ def main():
     sv_genotype(args.input_vcf,
                 args.bam,
                 args.split_bam,
-                # args.output_vcf,
+                args.output_vcf,
                 args.splflank,
                 args.discflank,
                 args.split_weight,
