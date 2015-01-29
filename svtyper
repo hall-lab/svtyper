@@ -264,13 +264,6 @@ class Genotype(object):
                 g_list.append('.')
         return ':'.join(map(str,g_list))
 
-class Bed(object):
-    def __init__(self, bedList):
-        self.chrom = bedList[0]
-        self.start = int(bedList[1])
-        self.end = int(bedList[2])
-        if len(bedList) > 4:
-            self.misc = bedList[3:]
 
 # efficient combinatorial function to handle extremely large numbers
 def log_choose(n, k):
@@ -350,6 +343,7 @@ def p_concordant(read_ospan, var_length, ins_dens):
     else:
         return p / (p + q)
 
+# count the paired end discordant and splitters
 def count_pairedend(chrom,
                     pos,
                     mate_chrom,
@@ -635,13 +629,12 @@ def stdev(myCounter):
     return stdev
 
 # generate empirical histogram of the sample's insert size distribution
-# CC NOTE: REMOVE BEYOND Z stdev!!!!
 def insert_hist(bam, rg):
-    # num_samp = 1000000
-    num_samp = 10000
+    num_samp = 1000000
+    # num_samp = 10000
     counter = 0
-    # skip = 5000000
-    skip = 0
+    skip = 5000000
+    # skip = 0
     skip_counter = 0
     mads = 10
     ins_list = []
@@ -697,6 +690,7 @@ def get_read_length(bam, rg):
         counter += 1
     return max_rl
 
+# parallelizable function to get the genotype of a single variant
 def process_variant(in_queue, results):
     while True:
         try:
@@ -1077,9 +1071,10 @@ def sv_genotype(vcf_file,
               debug,
               output_vcf]
 
+        # send the bp to a parallelized worker process
         work.put(bp)
 
-        # stream the output on the fly
+        # stream the output on the fly, instead of waiting until the end
         while True:
             if results.empty() == True:
                 break
@@ -1100,6 +1095,8 @@ def sv_genotype(vcf_file,
             break
         output_vcf.write(result + '\n')
 
+    # not really sure why, but without joining it throws
+    # an error at the end
     for  p in pool:
         p.join()
 
