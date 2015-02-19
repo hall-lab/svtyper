@@ -3,10 +3,8 @@
 import pysam
 import argparse, sys
 import math, time, re
-# import multiprocessing
 from collections import Counter
 from argparse import RawTextHelpFormatter
-# from scipy.stats import norm # deprecated i think? 2015-01-26
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.1 $"
