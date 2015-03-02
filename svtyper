@@ -961,12 +961,20 @@ def sv_genotype(vcf_file,
                 var.genotype(sample).set_format('RP', int(disc_scaled_ref))
 
             # assign genotypes
-            gt_sum = sum(10**x for x in gt_lplist)
+            try:
+                gt_sum = sum(10**x for x in gt_lplist)
+            except OverflowError:
+                gt_sum = 0
+
             # catch overflow
             if gt_sum > 0:
                 gt_sum_log = math.log(gt_sum, 10)
-                sample_qual = -10 * (gt_lplist[0] - gt_sum_log) # phred-scaled probability site is non-reference in this sample
-                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - gt_sum_log))
+                sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
+                if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
+                    phred_gq = 200                    
+                else:
+                    phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
+                var.genotype(sample).set_format('GQ', phred_gq)
                 var.genotype(sample).set_format('SQ', sample_qual)
                 var.qual += sample_qual
                 if gt_idx == 1:
