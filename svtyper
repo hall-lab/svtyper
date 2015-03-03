@@ -636,8 +636,10 @@ def stdev(myCounter):
 # CC NOTE: REMOVE BEYOND Z stdev!!!!
 def insert_hist(bam, rg):
     num_samp = 1000000
+    # num_samp = 10000
     counter = 0
     skip = 5000000
+    # skip = 0
     skip_counter = 0
     mads = 10
     ins_list = []
@@ -961,12 +963,12 @@ def sv_genotype(vcf_file,
                 var.genotype(sample).set_format('RP', int(disc_scaled_ref))
 
             # assign genotypes
-            try:
-                gt_sum = sum(10**x for x in gt_lplist)
-            except OverflowError:
-                gt_sum = 0
-
-            # catch overflow
+            gt_sum = 0
+            for gt in gt_lplist:
+                try:
+                    gt_sum += 10**gt
+                except OverflowError:
+                    gt_sum += 0
             if gt_sum > 0:
                 gt_sum_log = math.log(gt_sum, 10)
                 sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
