@@ -776,48 +776,6 @@ def sv_genotype(vcf_file,
         sample = Sample(bam_list[i], spl_bam_list[i])
         sample_list.append(sample)
 
-        # for name in sample.lib_dict:
-        #     sample.lib_dict[name].calc_read_length()
-        #     sample.lib_dict[name].calc_insert_hist()
-        #     sample.lib_dict[name].calc_insert_density()
-
-        print sample.lib_dict
-        print [sample.lib_dict[lib].readgroups for lib in sample.lib_dict]
-        print [sample.lib_dict[lib].read_length for lib in sample.lib_dict]
-        print [sample.lib_dict[lib].mean for lib in sample.lib_dict]
-        print [sample.lib_dict[lib].sd for lib in sample.lib_dict]
-
-
-
-
-    # # parse the library design from the BAMs
-    # lib_to_rg = dict()
-    # rg_to_lib = dict()
-    # for bam in bam_list:
-    #     for r in bam.header['RG']:
-    #         try:
-    #             lib=r['LB']
-    #         except KeyError, e:
-    #             lib=''
-    #         rg_to_lib[r['ID']] = lib
-    #         if lib not in lib_to_rg:
-    #             lib_to_rg[lib] = [r['ID']]
-    #         else:
-    #             lib_to_rg[lib].append(r['ID'])
-
-    # define library insert distributions and read lengths
-    # ins_hist_list = dict()
-    # ins_dens_list = dict()
-    # mean_ospan_list = dict()
-    # sd_ospan_list = dict()
-    # read_length_list = dict()
-    # for bam in bam_list:
-    #     for lib in lib_to_rg:
-    #         ins_hist_list[lib] = insert_hist(bam, lib_to_rg[lib])
-    #         ins_dens_list[lib] = insert_density(ins_hist_list[lib])
-    #         mean_ospan_list[lib] = mean(ins_hist_list[lib])
-    #         sd_ospan_list[lib] = stdev(ins_hist_list[lib])
-    #         read_length_list[lib] = get_read_length(bam, lib_to_rg[lib])
     z = 3
     padding = 30
     in_header = True
@@ -825,9 +783,7 @@ def sv_genotype(vcf_file,
     breakend_dict = {} # cache to hold unmatched generic breakends for genotyping
     vcf = Vcf()
 
-    # # first get the sample name from the bam file
-    # sample_list = [bam.header['RG'][0]['SM'] for bam in bam_list]
-
+    # read input VCF
     for line in vcf_file:
         if in_header:
             if line[0] == '#':
@@ -994,6 +950,8 @@ def sv_genotype(vcf_file,
                                                       # bam)
 
             if debug:
+                print '--------------------'
+                print sample.name
                 print 'sr_a', '(ref, alt)', ref_counter_a[posA], spl_counter_a[posA]
                 print 'pe_a', '(ref, alt)', conc_counter_a, disc_counter_a
                 print 'sr_b', '(ref, alt)', ref_counter_b[posB], spl_counter_b[posB]
