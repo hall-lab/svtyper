@@ -637,8 +637,7 @@ def insert_hist(bam, rg):
     num_samp = 1000000
     # num_samp = 10000
     counter = 0
-    skip = 5000000
-    # skip = 0
+    skip = 0
     skip_counter = 0
     mads = 10
     ins_list = []
