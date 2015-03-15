@@ -648,10 +648,9 @@ class Library(object):
     # generate empirical histogram of the sample's insert size distribution
     # CC NOTE: REMOVE BEYOND Z stdev!!!!
     def calc_insert_hist(self):
-        # num_samp = 1000000
-        num_samp = 10000
+        num_samp = 1000000
+        # num_samp = 10000
         counter = 0
-        # skip = 5000000
         skip = 0
         skip_counter = 0
         mads = 10
