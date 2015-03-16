@@ -287,9 +287,9 @@ def log_choose(n, k):
 def bayes_gt(ref, alt, is_dup):
     # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
     if is_dup: # specialized logic to handle non-destructive events such as duplications
-        p_alt = [0.01, 0.3, 0.5]
+        p_alt = [0.1, 0.3, 0.5]
     else:
-        p_alt = [0.01, 0.4, 0.8]
+        p_alt = [0.1, 0.4, 0.8]
 
     total = ref + alt
     
@@ -943,7 +943,7 @@ def sv_genotype(vcf_file,
             if var.info['SVTYPE'] == "DUP": is_dup = True
             else: is_dup = False
             gt_lplist = bayes_gt(int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref), int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt), is_dup)
-            gt_idx = gt_lplist.index(max(gt_lplist))
+            gt_idx = gt_lplist.index(max(gt_lplist[1:]))
 
             # print log probabilities of homref, het, homalt
             if debug:
@@ -960,33 +960,38 @@ def sv_genotype(vcf_file,
                 var.genotype(sample).set_format('AP', int(disc_scaled_alt))
                 var.genotype(sample).set_format('RP', int(disc_scaled_ref))
 
-            # assign genotypes
-            gt_sum = 0
-            for gt in gt_lplist:
-                try:
-                    gt_sum += 10**gt
-                except OverflowError:
-                    gt_sum += 0
-            if gt_sum > 0:
-                gt_sum_log = math.log(gt_sum, 10)
-                sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
-                if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
-                    phred_gq = 200                    
-                else:
-                    phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
-                var.genotype(sample).set_format('GQ', phred_gq)
-                var.genotype(sample).set_format('SQ', sample_qual)
-                var.qual += sample_qual
-                if gt_idx == 1:
-                    var.genotype(sample).set_format('GT', '0/1')
-                elif gt_idx == 2:
-                    var.genotype(sample).set_format('GT', '1/1')
-                elif gt_idx == 0:
-                    var.genotype(sample).set_format('GT', '0/0')
+            # don't genotype if LUMPY call is reference
+            if var.genotype(sample).get_format('GT') == '0/0':
+                gt_idx = 0
+                var.genotype(sample).set_format('GQ', -10 * (gt_lplist[gt_idx] - math.log(sum(10**x for x in gt_lplist),10) ))
             else:
-                var.genotype(sample).set_format('GQ', '.')
-                var.genotype(sample).set_format('SQ', '.')
-                var.genotype(sample).set_format('GT', './.')
+                # assign genotypes
+                gt_sum = 0
+                for gt in gt_lplist:
+                    try:
+                        gt_sum += 10**gt
+                    except OverflowError:
+                        gt_sum += 0
+                if gt_sum > 0:
+                    gt_sum_log = math.log(gt_sum, 10)
+                    sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
+                    if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
+                        phred_gq = 200                    
+                    else:
+                        phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
+                    var.genotype(sample).set_format('GQ', phred_gq)
+                    var.genotype(sample).set_format('SQ', sample_qual)
+                    var.qual += sample_qual
+                    if gt_idx == 1:
+                        var.genotype(sample).set_format('GT', '0/1')
+                    elif gt_idx == 2:
+                        var.genotype(sample).set_format('GT', '1/1')
+                    elif gt_idx == 0:
+                        var.genotype(sample).set_format('GT', '0/0')
+                else:
+                    var.genotype(sample).set_format('GQ', '.')
+                    var.genotype(sample).set_format('SQ', '.')
+                    var.genotype(sample).set_format('GT', './.')
         else:
             var.genotype(sample).set_format('GT', './.')
             var.qual = 0
