@@ -27,6 +27,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
+    parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('-d', '--detailed', action='store_true', required=False, help='more detailed VCF format fields')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
@@ -617,9 +618,10 @@ def stdev(myCounter):
 
 # holds a library's insert size and read length information
 class Library(object):
-    def __init__(self, bam, name):
+    def __init__(self, bam, name, num_samp):
         self.bam = bam
         self.name = name
+        self.num_samp = num_samp
         self.readgroups = list()
         self.read_length = int()
         self.hist = dict()
@@ -648,8 +650,6 @@ class Library(object):
     # generate empirical histogram of the sample's insert size distribution
     # CC NOTE: REMOVE BEYOND Z stdev!!!!
     def calc_insert_hist(self):
-        num_samp = 1000000
-        # num_samp = 10000
         counter = 0
         skip = 0
         skip_counter = 0
@@ -675,7 +675,7 @@ class Library(object):
             else:
                 valueCounts[read.tlen] += 1
                 counter += 1
-            if counter == num_samp:
+            if counter == self.num_samp:
                 break
 
         # remove outliers
@@ -698,10 +698,11 @@ class Library(object):
 
 # holds each sample's BAM and library information
 class Sample(object):
-    def __init__(self, bam, spl_bam):
+    def __init__(self, bam, spl_bam, num_samp):
         self.name = bam.header['RG'][0]['SM']
         self.bam = bam
         self.spl_bam = spl_bam
+        num_samp
 
         self.lib_dict = dict()
 
@@ -715,7 +716,7 @@ class Sample(object):
 
             # add the new library
             if lib_name not in self.lib_dict:
-                new_lib = Library(self.bam, lib_name)
+                new_lib = Library(self.bam, lib_name, num_samp)
                 self.lib_dict[lib_name] = new_lib
             self.rg_to_lib[r['ID']] = self.lib_dict[lib_name]
             self.lib_dict[lib_name].add_readgroup(r['ID'])
@@ -759,6 +760,7 @@ def sv_genotype(vcf_file,
                 discflank,
                 split_weight,
                 disc_weight,
+                num_samp,
                 detailed,
                 debug):
     
@@ -772,7 +774,7 @@ def sv_genotype(vcf_file,
 
     sample_list = list()
     for i in xrange(len(bam_list)):
-        sample = Sample(bam_list[i], spl_bam_list[i])
+        sample = Sample(bam_list[i], spl_bam_list[i], num_samp)
         sample_list.append(sample)
 
     z = 3
@@ -1076,6 +1078,7 @@ def main():
                 args.discflank,
                 args.split_weight,
                 args.disc_weight,
+                args.num_samp,
                 args.detailed,
                 args.debug)
 
