@@ -400,7 +400,7 @@ def count_pairedend(chrom,
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     # if a deletion, iterate the discordants for these too
-                    if svtype == 'DEL' and ispan2 >= mate_ci[0]:
+                    if svtype == 'DEL' and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
@@ -479,7 +479,7 @@ def count_pairedend(chrom,
                 if ispan2 < pos:
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if svtype == 'DEL' and ispan2 <= mate_ci[1]:
+                    if svtype == 'DEL' and ispan1 >= mate_ci[0] and ispan2 <= mate_ci[1]:
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
@@ -925,6 +925,13 @@ def sv_genotype(vcf_file,
                                                       var.info['SVTYPE'],
                                                       sample,
                                                       z, discflank)
+                                                      # mean_ospan_list,
+                                                      # sd_ospan_list,
+                                                      # ins_hist_list,
+                                                      # ins_dens_list,
+                                                      # read_length_list,
+                                                      # rg_to_lib,
+                                                      # bam)
 
             if debug:
                 print '--------------------'
