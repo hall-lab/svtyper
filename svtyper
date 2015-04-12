@@ -453,8 +453,6 @@ def count_pairedend(chrom,
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
-##### FIX FOR NEG STRAND STUFF!!!!!
-
     if o1 == '-' or svtype == 'INV':
         # survey for concordant read pairs
         for read in sample.bam.fetch(chrom, max(ci[0], 0), ci[1]):
@@ -738,22 +736,6 @@ class Sample(object):
     # return the library object for a specified read group
     def get_lib(self, readgroup):
         return self.rg_to_lib[readgroup]
-        
-
-
-        #     self.rg_to_lib[r['ID']] = lib
-        #     if lib not in self.lib_to_rg:
-        #         self.lib_to_rg[lib] = [r['ID']]
-        #     else:
-        #         self.lib_to_rg[lib].append(r['ID'])
-
-        # for lib in self.lib_to_rg:
-        #     ins_hist_list[lib] = insert_hist(bam, lib_to_rg[lib])
-        #     ins_dens_list[lib] = insert_density(ins_hist_list[lib])
-        #     mean_ospan_list[lib] = mean(ins_hist_list[lib])
-        #     sd_ospan_list[lib] = stdev(ins_hist_list[lib])
-        #     read_length_list[lib] = get_read_length(bam, lib_to_rg[lib])
-
 
 # primary function
 def sv_genotype(vcf_file,
