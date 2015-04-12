@@ -486,6 +486,7 @@ def count_pairedend(chrom,
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
             for read in sample.bam.fetch(chrom, max(ci[0]-1, 0), ci[1]+1):
+                lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (not read.is_reverse
                     or read.is_secondary
                     or read.is_unmapped
