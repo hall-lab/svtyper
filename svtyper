@@ -842,10 +842,6 @@ def sv_genotype(vcf_file,
 
         # for i in xrange(len(bam_list)):
         for sample in sample_list:
-            # bam = bam_list[i]
-            # spl_bam = spl_bam_list[i]
-            # sample = sample_list[i]
-
             '''
             Breakend A
             '''
