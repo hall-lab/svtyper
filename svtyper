@@ -356,10 +356,8 @@ def p_concordant(read_ospan, var_length, ins_dens):
 
 def count_pairedend(chrom,
                     pos,
-                    ci,
                     mate_chrom,
                     mate_pos,
-                    mate_ci,
                     o1,
                     o2,
                     svtype,
@@ -371,11 +369,11 @@ def count_pairedend(chrom,
     conc_scaled_counter = 0
     disc_scaled_counter = 0
     
-    # fetch_flank = sample.get_fetch_flank(z)
+    fetch_flank = sample.get_fetch_flank(z)
 
     if o1 == '+' or svtype == 'INV':
         # survey for concordant read pairs
-        for read in sample.bam.fetch(chrom, max(ci[0]-1, 0), ci[1]+1):
+        for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
             lib = sample.get_lib(read.opt('RG')) # get the read's library
             if (read.is_reverse
                 or not read.mate_is_reverse
@@ -400,13 +398,13 @@ def count_pairedend(chrom,
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     # if a deletion, iterate the discordants for these too
-                    if svtype == 'DEL' and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                    if svtype == 'DEL':
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
-            for read in sample.bam.fetch(chrom, max(ci[0]-1, 0), ci[1]+1):
+            for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (read.is_reverse
                     or read.is_secondary
@@ -424,7 +422,7 @@ def count_pairedend(chrom,
                         continue
                     ispan1 = read.pos + discflank
                     ispan2 = mate_5prime - discflank - 1
-                    if ispan1 < pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                    if ispan1 < pos: # and ispan2 > mate_pos and ospan < (mean_ospan + sd_ospan * z):
                         disc_counter += 1
                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                 elif svtype == 'INV':
@@ -432,7 +430,7 @@ def count_pairedend(chrom,
                         continue
                     ispan1 = read.pos + discflank
                     ispan2 = read.pnext + discflank
-                    if ispan1 < pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                    if ispan1 < pos: # and ispan2 < mate_pos and ospan < (mean_ospan + sd_ospan * z):
                         disc_counter += 1
                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                 elif svtype == 'BND':
@@ -441,7 +439,7 @@ def count_pairedend(chrom,
                             continue
                         ispan1 = read.pos + discflank
                         ispan2 = mate_5prime - discflank - 1
-                        if ispan1 < pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                        if ispan1 < pos:
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if o2 == '+':
@@ -449,15 +447,13 @@ def count_pairedend(chrom,
                             continue
                         ispan1 = read.pos + discflank
                         ispan2 = read.pnext + discflank
-                        if ispan1 < pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                        if ispan1 < pos:
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
-##### FIX FOR NEG STRAND STUFF!!!!!
-
     if o1 == '-' or svtype == 'INV':
         # survey for concordant read pairs
-        for read in sample.bam.fetch(chrom, max(ci[0], 0), ci[1]):
+        for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
             lib = sample.get_lib(read.opt('RG')) # get the read's library
             if (not read.is_reverse
                 or read.mate_is_reverse
@@ -481,13 +477,13 @@ def count_pairedend(chrom,
                 if ispan2 < pos:
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if svtype == 'DEL' and ispan1 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                    if svtype == 'DEL':
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
-            for read in sample.bam.fetch(chrom, max(ci[0]-1, 0), ci[1]+1):
+            for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
                 if (not read.is_reverse
                     or read.is_secondary
                     or read.is_unmapped
@@ -505,7 +501,7 @@ def count_pairedend(chrom,
                         continue
                     ispan1 = read.aend - discflank - 1
                     ispan2 = read.pnext + discflank
-                    if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                    if ispan1 > pos:
                         disc_counter += 1
                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                 elif svtype == 'INV':
@@ -513,7 +509,7 @@ def count_pairedend(chrom,
                         continue
                     ispan1 = read.aend - discflank - 1
                     ispan2 = mate_5prime - discflank - 1
-                    if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                    if ispan1 > pos:
                         disc_counter += 1
                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                 elif svtype == 'BND':
@@ -522,7 +518,7 @@ def count_pairedend(chrom,
                             continue
                         ispan1 = read.aend - discflank - 1
                         ispan2 = mate_5prime - discflank - 1
-                        if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                        if ispan1 > pos:
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if o2 == '+':
@@ -530,7 +526,7 @@ def count_pairedend(chrom,
                             continue
                         ispan1 = read.aend - discflank - 1
                         ispan2 = read.pnext + discflank
-                        if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= mate_ci[1]:
+                        if ispan1 > pos:
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
@@ -832,9 +828,6 @@ def sv_genotype(vcf_file,
                 chromB = var2.chrom
                 posA = var.pos
                 posB = var2.pos
-                # confidence intervals
-                ciA = [posA + ci for ci in map(int, var.info['CIPOS'].split(','))]
-                ciB = [posB + ci for ci in map(int, var2.info['CIPOS'].split(','))]
 
                 # infer the strands from the alt allele
                 if var.alt[-1] == '[' or var.alt[-1] == ']':
@@ -851,10 +844,6 @@ def sv_genotype(vcf_file,
             chromB = var.chrom
             posA = var.pos
             posB = int(var.get_info('END'))
-            # confidence intervals
-            ciA = [posA + ci for ci in map(int, var.info['CIPOS'].split(','))]
-            ciB = [posB + ci for ci in map(int, var.info['CIEND'].split(','))]
-
             if var.get_info('SVTYPE') == 'DEL':
                 o1, o2 =  '+', '-'
             elif var.get_info('SVTYPE') == 'DUP':
@@ -869,6 +858,10 @@ def sv_genotype(vcf_file,
 
         # for i in xrange(len(bam_list)):
         for sample in sample_list:
+            # bam = bam_list[i]
+            # spl_bam = spl_bam_list[i]
+            # sample = sample_list[i]
+
             '''
             Breakend A
             '''
@@ -899,12 +892,19 @@ def sv_genotype(vcf_file,
             (conc_counter_a,
              disc_counter_a,
              conc_scaled_counter_a,
-             disc_scaled_counter_a) = count_pairedend(chromA, posA, ciA,
-                                                      chromB, posB, ciB,
+             disc_scaled_counter_a) = count_pairedend(chromA, posA,
+                                                      chromB, posB,
                                                       o1, o2,
                                                       var.info['SVTYPE'],
                                                       sample,
                                                       z, discflank)
+                                                      # mean_ospan_list,
+                                                      # sd_ospan_list,
+                                                      # ins_hist_list,
+                                                      # ins_dens_list,
+                                                      # read_length_list,
+                                                      # rg_to_lib,
+                                                      # bam)
 
             '''
             Breakend B
@@ -936,8 +936,8 @@ def sv_genotype(vcf_file,
             (conc_counter_b,
              disc_counter_b,
              conc_scaled_counter_b,
-             disc_scaled_counter_b) = count_pairedend(chromB, posB, ciB,
-                                                      chromA, posA, ciA,
+             disc_scaled_counter_b) = count_pairedend(chromB, posB,
+                                                      chromA, posA,
                                                       o2, o1,
                                                       var.info['SVTYPE'],
                                                       sample,
