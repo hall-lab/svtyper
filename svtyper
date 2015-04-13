@@ -339,20 +339,11 @@ def get_mate_mapq(bam, read):
 # calculate the probability that a read is concordant at a deletion breakpoint,
 # given the putative deletion size and insert distribution of the library.
 def p_concordant(read_ospan, var_length, ins_dens):
-    s = 0
-    t = 0
-    for i in list(ins_dens):
-        if i <= read_ospan:
-            s += ins_dens[i]
-        if i <= read_ospan - var_length:
-            t += ins_dens[i]
-    p = 1 - s
-    q = t
-
-    if p + q == 0:
-        return 0
-    else:
-        return p / (p + q)
+    try:
+        p = float(ins_dens[read_ospan]) / (ins_dens[read_ospan] + ins_dens[read_ospan - var_length])
+    except ZeroDivisionError:
+        p = 0
+    return p
 
 def count_pairedend(chrom,
                     pos,
