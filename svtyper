@@ -344,7 +344,7 @@ def p_concordant(read_ospan, var_length, ins_dens):
     try:
         p = float(ins_dens[read_ospan]) * conc_prior / (conc_prior * ins_dens[read_ospan] + disc_prior * (ins_dens[read_ospan - var_length]))
     except ZeroDivisionError:
-        p = conc_prior
+        p = None
     return p
 
 def count_pairedend(chrom,
@@ -382,6 +382,8 @@ def count_pairedend(chrom,
                 mate_mapq = get_mate_mapq(sample.bam, read)
                 ospan = get_mate_5prime(sample.bam, read) - read.pos
                 prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
+                if prob_conc is None: # bail if neither concordant or discordant
+                    continue
 
                 ispan1 = read.pos + discflank
                 ispan2 = get_mate_5prime(sample.bam, read) - discflank - 1 # speed up here
@@ -462,6 +464,8 @@ def count_pairedend(chrom,
                 mate_mapq = get_mate_mapq(sample.bam, read)
                 ospan = read.aend - read.pnext
                 prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
+                if prob_conc is None: # bail if neither concordant or discordant
+                    continue
 
                 ispan1 = read.aend - discflank - 1
                 ispan2 = read.pnext + discflank
