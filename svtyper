@@ -381,15 +381,14 @@ def count_pairedend(chrom,
             else:
                 mate_mapq = get_mate_mapq(sample.bam, read)
                 ospan = get_mate_5prime(sample.bam, read) - read.pos
-                prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
-                if prob_conc is None: # bail if neither concordant or discordant
-                    continue
-
                 ispan1 = read.pos + discflank
                 ispan2 = get_mate_5prime(sample.bam, read) - discflank - 1 # speed up here
                 ispan = ispan2 - ispan1
 
                 if ispan2 > pos:
+                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
+                    if prob_conc is None: # bail if neither concordant or discordant
+                        pass
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     # if a deletion, iterate the discordants for these too
@@ -463,15 +462,14 @@ def count_pairedend(chrom,
             else:
                 mate_mapq = get_mate_mapq(sample.bam, read)
                 ospan = read.aend - read.pnext
-                prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
-                if prob_conc is None: # bail if neither concordant or discordant
-                    continue
-
                 ispan1 = read.aend - discflank - 1
                 ispan2 = read.pnext + discflank
                 ispan = ispan1 - ispan2
 
                 if ispan2 < pos:
+                    prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
+                    if prob_conc is None: # bail if neither concordant or discordant
+                        pass
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if svtype == 'DEL':
