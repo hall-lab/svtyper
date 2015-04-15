@@ -440,7 +440,7 @@ def count_pairedend(chrom,
                         ispan1 = read.pos + discflank
                         ispan2 = mate_5prime - discflank - 1
                         if ispan1 < pos and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
-                            print "+- BND", read
+                            # print "+- BND", read
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if o2 == '+':
