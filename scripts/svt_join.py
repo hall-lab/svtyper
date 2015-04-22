@@ -19,6 +19,8 @@ description: Join genotyped VCFs from multiple samples")
     # parser.add_argument('-a', '--argA', metavar='argA', type=str, required=True, help='description of argument')
     # parser.add_argument('-b', '--argB', metavar='argB', required=False, help='description of argument B')
     # parser.add_argument('-c', '--flagC', required=False, action='store_true', help='sets flagC to true')
+    parser.add_argument('-m', '--master', type=argparse.FileType('r'), default=None, help='VCF file to set first 8 columns of variant info [first file in vcf_list]')
+    parser.add_argument('-q', '--sum_quals', required=False, action='store_true', help='Sum QUAL scores of input VCFs as output QUAL score')
     parser.add_argument('vcf_list', metavar='vcf', nargs='*', type=argparse.FileType('r'), default=None, help='VCF file(s) to join')
 
     # parse the arguments
@@ -32,11 +34,15 @@ description: Join genotyped VCFs from multiple samples")
     return args
 
 # primary function
-def svt_join(vcf_list):
+def svt_join(master, sum_quals, vcf_list):
     header = []
     # draw header and variant info from first
     # VCF in the list
-    master = vcf_list[0]
+    # master = vcf_list[0]
+
+    if master is None:
+        master = open(vcf_list[0].name)
+
     sample_list = []
 
     # print header
@@ -49,10 +55,10 @@ def svt_join(vcf_list):
         print (master_line.rstrip())
 
     # get sample names
-    master_v = master_line.rstrip().split('\t')
-    for sample in master_v[9:]:
-        sample_list.append(sample)
-    for vcf in vcf_list[1:]:
+    # master_v = master_line.rstrip().split('\t')
+    # for sample in master_v[9:]:
+    #     sample_list.append(sample)
+    for vcf in vcf_list:
         while 1:
             line = vcf.readline()
             if not line:
@@ -68,24 +74,38 @@ def svt_join(vcf_list):
     
     # iterate through VCF body
     while 1:
-        out_v = [] # output array of fields
         master_line = master.readline()
         if not master_line:
             break
-        out_v = master_line.rstrip().split('\t')
+        master_v = master_line.rstrip().split('\t')
+        master_chrom = master_v[0]
+        master_pos = master_v[1]
+
+        out_v = master_v[:9] # output array of fields
         qual = float(out_v[5])
 
         # sys.stdout.write( '\t'.join(master_v) )
-        for vcf in vcf_list[1:]:
+        for vcf in vcf_list:
             line = vcf.readline()
             if not line:
-                sys.stderr.write('\nError, VCF files differ in length\n')
+                sys.stderr.write('\nError: VCF files differ in length\n')
                 exit(1)
             line_v = line.rstrip().split('\t')
+            line_chrom = line_v[0]
+            line_pos = line_v[1]
+            
+            # ensure that each VCF position agrees with the master
+            if (master_chrom != line_chrom or
+                master_pos != line_pos):
+                sys.stderr.write('\nError: variant in %s (%s:%s) conflicts with master (%s:%s)\n' %
+                                 (vcf.name, line_chrom, line_pos, master_chrom, master_pos))
+                exit(1)
+
             qual += float(line_v[5])
             out_v = out_v + line_v[9:]
             # sys.stdout.write( '\t' + '\t'.join(line.rstrip().split('\t')[9:]) )
-        out_v[5] = qual
+        if sum_quals:
+            out_v[5] = qual
         sys.stdout.write( '\t'.join(map(str, out_v)) + '\n')
         # sys.stdout.write('\n')
         
@@ -102,7 +122,7 @@ def main():
     args = get_args()
 
     # call primary function
-    svt_join(args.vcf_list)
+    svt_join(args.master, args.sum_quals, args.vcf_list)
 
     # close the input file
     # args.input.close()
