@@ -108,7 +108,9 @@ def svt_join(master, sum_quals, vcf_list):
             out_v[5] = qual
         sys.stdout.write( '\t'.join(map(str, out_v)) + '\n')
         # sys.stdout.write('\n')
-        
+    
+    # close files
+    master.close()
     for vcf in vcf_list:
         vcf.close()
     
@@ -123,9 +125,6 @@ def main():
 
     # call primary function
     svt_join(args.master, args.sum_quals, args.vcf_list)
-
-    # close the input file
-    # args.input.close()
 
 # initialize the script
 if __name__ == '__main__':
