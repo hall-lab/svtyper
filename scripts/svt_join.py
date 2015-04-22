@@ -35,14 +35,9 @@ description: Join genotyped VCFs from multiple samples")
 
 # primary function
 def svt_join(master, sum_quals, vcf_list):
-    header = []
-    # draw header and variant info from first
-    # VCF in the list
-    # master = vcf_list[0]
-
+    # if master not provided, set as first VCF
     if master is None:
         master = open(vcf_list[0].name)
-
     sample_list = []
 
     # print header
@@ -55,9 +50,6 @@ def svt_join(master, sum_quals, vcf_list):
         print (master_line.rstrip())
 
     # get sample names
-    # master_v = master_line.rstrip().split('\t')
-    # for sample in master_v[9:]:
-    #     sample_list.append(sample)
     for vcf in vcf_list:
         while 1:
             line = vcf.readline()
@@ -81,10 +73,10 @@ def svt_join(master, sum_quals, vcf_list):
         master_chrom = master_v[0]
         master_pos = master_v[1]
 
-        out_v = master_v[:9] # output array of fields
+        out_v = master_v[:8] # output array of fields
         qual = float(out_v[5])
+        format = None # column 9, VCF format field.
 
-        # sys.stdout.write( '\t'.join(master_v) )
         for vcf in vcf_list:
             line = vcf.readline()
             if not line:
@@ -93,6 +85,13 @@ def svt_join(master, sum_quals, vcf_list):
             line_v = line.rstrip().split('\t')
             line_chrom = line_v[0]
             line_pos = line_v[1]
+
+            # set FORMAT field as format in first VCF.
+            # cannot extract this from master, since it may have
+            # been altered in the processing of the VCFs.
+            if format is None:
+                format = line_v[8]
+                out_v.append(format)
             
             # ensure that each VCF position agrees with the master
             if (master_chrom != line_chrom or
@@ -101,13 +100,17 @@ def svt_join(master, sum_quals, vcf_list):
                                  (vcf.name, line_chrom, line_pos, master_chrom, master_pos))
                 exit(1)
 
+            # ensure that the format for all VCFs agree with the first
+            if (format != line_v[8]):
+                sys.stderr.write('\nError: format in %s (%s) conflicts with first VCF (%s)\n' %
+                                 (vcf.name, line_v[8], format))
+                exit(1)
+
             qual += float(line_v[5])
             out_v = out_v + line_v[9:]
-            # sys.stdout.write( '\t' + '\t'.join(line.rstrip().split('\t')[9:]) )
         if sum_quals:
             out_v[5] = qual
         sys.stdout.write( '\t'.join(map(str, out_v)) + '\n')
-        # sys.stdout.write('\n')
     
     # close files
     master.close()
