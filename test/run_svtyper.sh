@@ -1,7 +1,6 @@
 # zcat NA12878.20.vcf.gz \
 #     | ../svtyper \
 #     -n 10000 \
-#     -d \
 #     -B /gscmnt/gc2719/halllab/users/cchiang/data/toy_data/NA12878.gtex.realign.chrom20/NA12878.gtex.realign.20.bam \
 #     -S /gscmnt/gc2719/halllab/users/cchiang/data/toy_data/NA12878.gtex.realign.chrom20/NA12878.gtex.realign.20.splitters.bam
 
@@ -11,7 +10,6 @@ SVTYPER=../svtyper
 
 cat NA12893.het.vcf \
     | $SVTYPER \
-    -d \
     -B /gscmnt/gc2802/halllab/ceph1463_realign_021815/NA12893/NA12893.bam \
     -S /gscmnt/gc2802/halllab/ceph1463_realign_021815/NA12893/NA12893.bam \
     > NA12893.het.gt.vcf
@@ -27,7 +25,6 @@ done
 echo -e "\nHomozygous computed genotypes:"
 cat NA12893.hom.vcf \
     | $SVTYPER \
-    -d \
     -B /gscmnt/gc2802/halllab/ceph1463_realign_021815/NA12893/NA12893.bam \
     -S /gscmnt/gc2802/halllab/ceph1463_realign_021815/NA12893/NA12893.bam \
     > NA12893.hom.gt.vcf

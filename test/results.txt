@@ -1,14 +1,14 @@
 Heterozygous computed genotypes:
-     34 0/0
-    611 0/1
-     23 1/1
-DEL	496	519	0.955684
-DUP	81	95	0.852632
-INV	34	54	0.62963
+     49 0/0
+    602 0/1
+     17 1/1
+DEL	502	519	0.967245
+DUP	75	95	0.789474
+INV	25	54	0.462963
 
 Homozygous computed genotypes:
       1 0/0
-      7 0/1
-     36 1/1
-DEL	36	41	0.878049
+     12 0/1
+     31 1/1
+DEL	31	41	0.756098
 INV	0	3	0
