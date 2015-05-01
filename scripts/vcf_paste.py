@@ -62,7 +62,8 @@ def svt_join(master, sum_quals, vcf_list):
                 for sample in line_v[9:]:
                     sample_list.append(sample)
                 break
-    print '\t'.join(master_line.rstrip().split('\t')[:9] + sample_list)
+    print "hi"
+    print '\t'.join(master_line.rstrip().split('\t')[:8] + ['FORMAT'] + sample_list)
     
     # iterate through VCF body
     while 1:
@@ -101,10 +102,10 @@ def svt_join(master, sum_quals, vcf_list):
                 exit(1)
 
             # ensure that the format for all VCFs agree with the first
-            if (format != line_v[8]):
-                sys.stderr.write('\nError: format in %s (%s) conflicts with first VCF (%s)\n' %
-                                 (vcf.name, line_v[8], format))
-                exit(1)
+            # if (format != line_v[8]):
+            #     sys.stderr.write('\nError: format in %s (%s) conflicts with first VCF (%s)\n' %
+            #                      (vcf.name, line_v[8], format))
+            #     exit(1)
 
             qual += float(line_v[5])
             out_v = out_v + line_v[9:]
