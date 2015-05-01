@@ -62,7 +62,6 @@ def svt_join(master, sum_quals, vcf_list):
                 for sample in line_v[9:]:
                     sample_list.append(sample)
                 break
-    print "hi"
     print '\t'.join(master_line.rstrip().split('\t')[:8] + ['FORMAT'] + sample_list)
     
     # iterate through VCF body
