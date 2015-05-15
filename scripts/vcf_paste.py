@@ -12,10 +12,10 @@ __date__ = "$Date: 2015-04-13 14:31 $"
 
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
-svt_join.py\n\
+vcf_paste.py\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
-description: Join genotyped VCFs from multiple samples")
+description: Paste VCFs from multiple samples")
     # parser.add_argument('-a', '--argA', metavar='argA', type=str, required=True, help='description of argument')
     # parser.add_argument('-b', '--argB', metavar='argB', required=False, help='description of argument B')
     # parser.add_argument('-c', '--flagC', required=False, action='store_true', help='sets flagC to true')
@@ -62,7 +62,7 @@ def svt_join(master, sum_quals, vcf_list):
                 for sample in line_v[9:]:
                     sample_list.append(sample)
                 break
-    print '\t'.join(master_line.rstrip().split('\t')[:9] + sample_list)
+    print '\t'.join(master_line.rstrip().split('\t')[:8] + ['FORMAT'] + sample_list)
     
     # iterate through VCF body
     while 1:

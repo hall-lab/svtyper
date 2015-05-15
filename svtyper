@@ -1028,6 +1028,7 @@ def sv_genotype(vcf_file,
                 var.genotype(sample.name).set_format('GT', './.')
                 var.qual = 0
                 var.genotype(sample.name).set_format('GQ', '.')
+                var.genotype(sample.name).set_format('SQ', '.')
                 var.genotype(sample.name).set_format('GL', '.')
                 var.genotype(sample.name).set_format('DP', 0)
                 var.genotype(sample.name).set_format('AO', 0)
