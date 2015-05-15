@@ -7,7 +7,7 @@ from collections import Counter
 from argparse import RawTextHelpFormatter
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
-__version__ = "$Revision: 0.0.1 $"
+__version__ = "$Revision: 0.0.2 $"
 __date__ = "$Date: 2014-04-28 14:31 $"
 
 # --------------------------------------
