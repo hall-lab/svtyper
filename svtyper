@@ -1004,7 +1004,7 @@ def sv_genotype(vcf_file,
                 var.genotype(sample.name).set_format('AS', int(split_scaled_alt))
                 var.genotype(sample.name).set_format('RP', int(disc_scaled_ref))
                 var.genotype(sample.name).set_format('AP', int(disc_scaled_alt))
-                var.genotype(sample.name).set_format('AB', QA / (QR + QA))
+                var.genotype(sample.name).set_format('AB', '%.2g' % (QA / float(QR + QA)))
 
 
                 # assign genotypes
