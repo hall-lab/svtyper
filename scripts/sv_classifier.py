@@ -405,7 +405,7 @@ def sv_classify(vcf_in, ae_dict, f_overlap):
         var = Variant(v, vcf)
 
         # check intersection with mobile elements
-        if var.info['SVTYPE'] in ['DEL']:
+        if ae_dict is not None and var.info['SVTYPE'] in ['DEL']:
             ae = annotation_intersect(var, ae_dict, f_overlap)
             if ae is not None:
                 if ae.startswith('SINE') or ae.startswith('LINE'):
@@ -435,23 +435,25 @@ def main():
     # parse the command line args
     args = get_args()
 
-    if args.ae_path.endswith('.gz'):
-        ae_bedfile = gzip.open(args.ae_path, 'rb')
-    else:
-        ae_bedfile = open(args.ae_path, 'r')
-    ae_dict = {}
-    for line in ae_bedfile:
-        v = line.rstrip().split('\t')
-        if len(v) < 4:
-            continue
-        # print line.rstrip()
-
-        v[1] = int(v[1])
-        v[2] = int(v[2])
-        if v[0] in ae_dict:
-            ae_dict[v[0]].append(v[1:])
+    # load the annotated elements
+    ae_dict = None
+    if args.ae_path is not None:
+        if args.ae_path.endswith('.gz'):
+            ae_bedfile = gzip.open(args.ae_path, 'rb')
         else:
-            ae_dict[v[0]] = [v[1:]]
+            ae_bedfile = open(args.ae_path, 'r')
+        ae_dict = {}
+
+        for line in ae_bedfile:
+            v = line.rstrip().split('\t')
+            if len(v) < 4:
+                continue
+            v[1] = int(v[1])
+            v[2] = int(v[2])
+            if v[0] in ae_dict:
+                ae_dict[v[0]].append(v[1:])
+            else:
+                ae_dict[v[0]] = [v[1:]]
 
     # call primary function
     sv_classify(args.vcf_in, ae_dict, args.f_overlap)
