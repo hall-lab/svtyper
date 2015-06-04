@@ -345,12 +345,18 @@ def to_bnd(var):
     # update position
     var2.pos = var.info['END']
 
+    # update CIPOS and CIEND
+    var2.info['CIPOS'] = var.info['CIEND']
+    var2.info['CIEND'] = var.info['CIPOS']
+    var2.info['CIPOS95'] = var.info['CIEND95']
+    var2.info['CIEND95'] = var.info['CIPOS95']
+
     # delete svlen and END
     del var1.info['SVLEN']
     del var2.info['SVLEN']
     del var1.info['END']
     del var2.info['END']
-    
+
     if var.info['SVTYPE'] == 'DEL':
         var1.alt = 'N[%s:%s[' % (var.chrom, var.info['END'])
         var2.alt = ']%s:%s]N' % (var.chrom, var.pos)
