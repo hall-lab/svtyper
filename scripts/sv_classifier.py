@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-import argparse, sys
-import statsmodels
+import argparse, sys, copy, gzip
 import math, time, re
 import numpy
 from scipy import stats
@@ -21,7 +20,9 @@ sv_classifier.py\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: classify structural variants")
-    parser.add_argument('-i', '--input', metavar='VCF', dest='vcf_in', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
+    parser.add_argument('-i', '--input', metavar='VCF', dest='vcf_in', type=argparse.FileType('r'), default=None, help='VCF input [stdin]')
+    parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
+    parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
     # parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     # parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     # parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
@@ -278,6 +279,9 @@ class Genotype(object):
 
 # test whether variant has read depth support
 def has_depth_support(var):
+    slope_threshold = 0.1
+    rsquared_threshold = 0.1
+    
     if 'CN' in var.active_formats:
         gt_list = []
         for s in var.sample_list:
@@ -292,52 +296,94 @@ def has_depth_support(var):
             gt_list.append(sum(map(int, gt_str.split(sep))))
 
         rd_list = map(float, [var.genotype(s).get_format('CN') for s in var.sample_list])
-
         rd = numpy.array([gt_list, rd_list])
-
-        # for col in rd:
-        #     for i in xrange(len(col)):
-
-        #         print col[i]
 
         # remove missing genotypes
         rd = rd[:, rd[0]!=-1]
 
-        # if len(set(gt_list)) > 1 and len(set(rd_list)) > 1:
-
-        # ensure variation in genotype and read depth
+        # ensure non-uniformity in genotype and read depth
         if len(numpy.unique(rd[0,:])) > 1 and len(numpy.unique(rd[1,:])) > 1:
-            # print rd
-            # degree = 1
-            # coeffs = numpy.polyfit(gt_list, rd_list, degree, full=True)
-            # print coeffs, var.info['SVTYPE']
-
-
+            # calculate regression
             (slope, intercept, r_value, p_value, std_err) = stats.linregress(rd)
-            print slope, r_value, var.info['SVTYPE'], var.var_id
+            # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
 
-            # if var.info['SVTYPE'] == 'DEL':
-            #     if min(rd_list) < 1.5:
-            #         return True
-            # elif var.info['SVTYPE'] == 'DUP':
-            #     if max(rd_list) > 2.5:
-            #         return True
+            # # write the scatterplot to a file
+            # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+            # numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
+            # f.close()
+            
+            if r_value ** 2 < rsquared_threshold:
+                return False
+
+            if var.info['SVTYPE'] == 'DEL':
+                slope = -slope
+
+            if slope < slope_threshold:
+                return False
+
+            return True
     return False
 
-# def has_depth_support(var):
-#     if 'CN' in var.active_formats:
-#         rd_list = map(float, [var.genotype(s).get_format('CN') for s in var.sample_list])
+def to_bnd(var):
+    # print var.info['SVTYPE'], 'to BND'
 
-#         if var.info['SVTYPE'] == 'DEL':
-#             if min(rd_list) < 1.5:
-#                 return True
-#         elif var.info['SVTYPE'] == 'DUP':
-#             if max(rd_list) > 2.5:
-#                 return True
-#     return False
+    var1 = copy.deepcopy(var)
+    var2 = copy.deepcopy(var)
+
+    # update svtype
+    var1.info['SVTYPE'] = 'BND'
+    var2.info['SVTYPE'] = 'BND'
+
+    # update variant id
+    var1.info['EVENT'] = var.var_id
+    var2.info['EVENT'] = var.var_id
+    var1.var_id = var.var_id + "_1"
+    var2.var_id = var.var_id + "_2"
+    var1.info['MATEID'] = var2.var_id
+    var2.info['MATEID'] = var1.var_id
+    
+    # update position
+    var2.pos = var.info['END']
+
+    # delete svlen and END
+    del var1.info['SVLEN']
+    del var2.info['SVLEN']
+    del var1.info['END']
+    del var2.info['END']
+    
+    if var.info['SVTYPE'] == 'DEL':
+        var1.alt = 'N[%s:%s[' % (var.chrom, var.info['END'])
+        var2.alt = ']%s:%s]N' % (var.chrom, var.pos)
+
+    elif var.info['SVTYPE'] == 'DUP':
+        var1.alt = ']%s:%s]N' % (var.chrom, var.info['END'])
+        var2.alt = 'N[%s:%s[' % (var.chrom, var.pos)
+    return var1, var2
+
+def reciprical_overlap(a, b):
+    overlap = float(min(a[1], b[1]) - max(a[0], b[0]))
+    return min(overlap / (a[1] - a[0]), overlap / (b[1] - b[0]))
+
+def annotation_intersect(var, ae_dict, threshold):
+    best_overlap = 0
+    slop = 100
+    i = 0
+    while 1:
+        feature = ae_dict[var.chrom][i]
+        if feature[0] - slop < var.pos:
+            if feature[1] + slop > int(var.info['END']):
+                overlap = reciprical_overlap([var.pos - 1, int(var.info['END'])], feature)
+                best_overlap = max(overlap, best_overlap)
+        else:
+            break
+        i += 1
+    if best_overlap >= threshold:
+        return feature[2]
+
+    return None
 
 # primary function
-def sv_classify(vcf_in):
+def sv_classify(vcf_in, ae_dict, f_overlap):
     vcf_out = sys.stdout
     vcf = Vcf()
     header = []
@@ -351,7 +397,6 @@ def sv_classify(vcf_in):
             else:
                 in_header = False
                 vcf.add_header(header)
-
                 # write the output header
                 vcf_out.write(vcf.get_header() + '\n')
 
@@ -359,15 +404,29 @@ def sv_classify(vcf_in):
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
 
+        # check intersection with mobile elements
+        if var.info['SVTYPE'] in ['DEL']:
+            ae = annotation_intersect(var, ae_dict, f_overlap)
+            if ae is not None:
+                if ae.startswith('SINE') or ae.startswith('LINE'):
+                    ae = 'ME:' + ae
+                var.alt = '<DEL:%s>' % ae
+                var.info['SVTYPE'] = 'DEL:%s' % ae
+                vcf_out.write(var.get_var_string() + '\n')
+                continue
+
+        # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
             if has_depth_support(var):
-
                 # write variant
                 vcf_out.write(var.get_var_string() + '\n')
+            else:
+                for m_var in to_bnd(var):
+                    vcf_out.write(m_var.get_var_string() + '\n')
 
     vcf_out.close()
-    
     return
+
 
 # --------------------------------------
 # main function
@@ -376,11 +435,30 @@ def main():
     # parse the command line args
     args = get_args()
 
+    if args.ae_path.endswith('.gz'):
+        ae_bedfile = gzip.open(args.ae_path, 'rb')
+    else:
+        ae_bedfile = open(args.ae_path, 'r')
+    ae_dict = {}
+    for line in ae_bedfile:
+        v = line.rstrip().split('\t')
+        if len(v) < 4:
+            continue
+        # print line.rstrip()
+
+        v[1] = int(v[1])
+        v[2] = int(v[2])
+        if v[0] in ae_dict:
+            ae_dict[v[0]].append(v[1:])
+        else:
+            ae_dict[v[0]] = [v[1:]]
+
     # call primary function
-    sv_classify(args.vcf_in)
+    sv_classify(args.vcf_in, ae_dict, args.f_overlap)
 
     # close the files
     args.vcf_in.close()
+    ae_bedfile.close()
 
 # initialize the script
 if __name__ == '__main__':
