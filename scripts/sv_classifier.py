@@ -325,8 +325,6 @@ def has_depth_support(var):
     return False
 
 def to_bnd(var):
-    # print var.info['SVTYPE'], 'to BND'
-
     var1 = copy.deepcopy(var)
     var2 = copy.deepcopy(var)
 
@@ -357,6 +355,9 @@ def to_bnd(var):
     del var1.info['END']
     del var2.info['END']
 
+    # add SECONDARY to var2
+    var2.info['SECONDARY'] = True
+
     if var.info['SVTYPE'] == 'DEL':
         var1.alt = 'N[%s:%s[' % (var.chrom, var.info['END'])
         var2.alt = ']%s:%s]N' % (var.chrom, var.pos)
@@ -373,18 +374,20 @@ def reciprical_overlap(a, b):
 def annotation_intersect(var, ae_dict, threshold):
     best_overlap = 0
     slop = 100
-    i = 0
-    while 1:
-        feature = ae_dict[var.chrom][i]
-        if feature[0] - slop < var.pos:
-            if feature[1] + slop > int(var.info['END']):
-                overlap = reciprical_overlap([var.pos - 1, int(var.info['END'])], feature)
-                best_overlap = max(overlap, best_overlap)
-        else:
-            break
-        i += 1
-    if best_overlap >= threshold:
-        return feature[2]
+    
+    if var.chrom in ae_dict:
+        i = 0
+        while 1:
+            feature = ae_dict[var.chrom][i]
+            if feature[0] - slop < var.pos:
+                if feature[1] + slop > int(var.info['END']):
+                    overlap = reciprical_overlap([var.pos - 1, int(var.info['END'])], feature)
+                    best_overlap = max(overlap, best_overlap)
+            else:
+                break
+            i += 1
+        if best_overlap >= threshold:
+            return feature[2]
 
     return None
 
