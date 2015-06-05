@@ -376,21 +376,26 @@ def reciprocal_overlap(a, b):
 
 def annotation_intersect(var, ae_dict, threshold):
     best_overlap = 0
+    best_feature = ''
     slop = 100
     
     if var.chrom in ae_dict:
+        var_start = var.pos - 1
+        var_end = int(var.info['END'])
         i = 0
         while 1:
             feature = ae_dict[var.chrom][i]
-            if feature[0] - slop < var.pos:
-                if feature[1] + slop > int(var.info['END']):
-                    overlap = reciprocal_overlap([var.pos - 1, int(var.info['END'])], feature)
-                    best_overlap = max(overlap, best_overlap)
+            if feature[0] - slop < var_end:
+                if feature[1] + slop > var_start:
+                    overlap = reciprocal_overlap([var_start, var_end], feature)
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_feature = feature[2]
             else:
                 break
             i += 1
         if best_overlap >= threshold:
-            return feature[2]
+            return best_feature
 
     return None
 
