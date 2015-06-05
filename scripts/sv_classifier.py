@@ -433,6 +433,9 @@ def sv_classify(vcf_in, ae_dict, f_overlap):
                 for m_var in to_bnd(var):
                     vcf_out.write(m_var.get_var_string() + '\n')
 
+        # variant is not DEL or DUP, just write out original
+        else:
+            vcf_out.write(var.get_var_string() + '\n')
     vcf_out.close()
     return
 
@@ -469,7 +472,8 @@ def main():
 
     # close the files
     args.vcf_in.close()
-    ae_bedfile.close()
+    if args.ae_path is not None:
+        ae_bedfile.close()
 
 # initialize the script
 if __name__ == '__main__':
