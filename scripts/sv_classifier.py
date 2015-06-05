@@ -367,7 +367,10 @@ def to_bnd(var):
         var2.alt = 'N[%s:%s[' % (var.chrom, var.pos)
     return var1, var2
 
-def reciprical_overlap(a, b):
+def reciprocal_overlap(a, b):
+    # catch divide by zero error
+    if a[1] == a[0] or b[1] == b[0]:
+        return 0
     overlap = float(min(a[1], b[1]) - max(a[0], b[0]))
     return min(overlap / (a[1] - a[0]), overlap / (b[1] - b[0]))
 
@@ -381,7 +384,7 @@ def annotation_intersect(var, ae_dict, threshold):
             feature = ae_dict[var.chrom][i]
             if feature[0] - slop < var.pos:
                 if feature[1] + slop > int(var.info['END']):
-                    overlap = reciprical_overlap([var.pos - 1, int(var.info['END'])], feature)
+                    overlap = reciprocal_overlap([var.pos - 1, int(var.info['END'])], feature)
                     best_overlap = max(overlap, best_overlap)
             else:
                 break
