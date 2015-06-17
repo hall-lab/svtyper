@@ -373,6 +373,7 @@ def count_pairedend(chrom,
             if (read.is_reverse
                 or not read.mate_is_reverse
                 or read.is_secondary
+                or (read.flag & 2048 == 2048)
                 or read.is_unmapped
                 or read.mate_is_unmapped
                 or read.is_duplicate
@@ -406,6 +407,7 @@ def count_pairedend(chrom,
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (read.is_reverse
                     or read.is_secondary
+                    or (read.flag & 2048 == 2048)
                     or read.is_unmapped
                     or read.mate_is_unmapped
                     or read.is_duplicate
@@ -459,6 +461,7 @@ def count_pairedend(chrom,
             if (not read.is_reverse
                 or read.mate_is_reverse
                 or read.is_secondary
+                or (read.flag & 2048 == 2048)
                 or read.is_unmapped
                 or read.mate_is_unmapped
                 or read.is_duplicate
@@ -491,6 +494,7 @@ def count_pairedend(chrom,
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (not read.is_reverse
                     or read.is_secondary
+                    or (read.flag & 2048 == 2048)
                     or read.is_unmapped
                     or read.mate_is_unmapped
                     or read.is_duplicate
