@@ -21,16 +21,9 @@ author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: classify structural variants")
     parser.add_argument('-i', '--input', metavar='VCF', dest='vcf_in', type=argparse.FileType('r'), default=None, help='VCF input [stdin]')
+    parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
     parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
     parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
-    # parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    # parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
-    # parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
-    # parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
-    # parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
-    # parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
-    # # parser.add_argument('-d', '--detailed', action='store_true', required=False, help='more detailed VCF format fields')
-    # parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
     # parse the arguments
     args = parser.parse_args()
@@ -278,7 +271,7 @@ class Genotype(object):
         return ':'.join(map(str,g_list))
 
 # test whether variant has read depth support
-def has_depth_support(var):
+def has_depth_support(var, gender):
     slope_threshold = 0.1
     rsquared_threshold = 0.1
     
@@ -295,7 +288,14 @@ def has_depth_support(var):
                 sep = '|'
             gt_list.append(sum(map(int, gt_str.split(sep))))
 
-        rd_list = map(float, [var.genotype(s).get_format('CN') for s in var.sample_list])
+        # populate read-depth list, accounting for sample gender
+        rd_list = []
+        for s in var.sample_list:
+            if (var.chrom == 'X' or var.chrom == 'Y') and gender[s] == 1:
+                rd_list.append(float(var.genotype(s).get_format('CN')) * 2)
+            else:
+                rd_list.append(float(var.genotype(s).get_format('CN')))
+
         rd = numpy.array([gt_list, rd_list])
 
         # remove missing genotypes
@@ -403,11 +403,17 @@ def annotation_intersect(var, ae_dict, threshold):
     return None
 
 # primary function
-def sv_classify(vcf_in, ae_dict, f_overlap):
+def sv_classify(vcf_in, gender_file, ae_dict, f_overlap):
     vcf_out = sys.stdout
     vcf = Vcf()
     header = []
     in_header = True
+
+    gender = {}
+    # read sample genders
+    for line in gender_file:
+        v = line.rstrip().split('\t')
+        gender[v[0]] = int(v[1])
 
     for line in vcf_in:
         if in_header:
@@ -437,7 +443,7 @@ def sv_classify(vcf_in, ae_dict, f_overlap):
 
         # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
-            if has_depth_support(var):
+            if has_depth_support(var, gender):
                 # write variant
                 vcf_out.write(var.get_var_string() + '\n')
             else:
@@ -479,10 +485,11 @@ def main():
                 ae_dict[v[0]] = [v[1:]]
 
     # call primary function
-    sv_classify(args.vcf_in, ae_dict, args.f_overlap)
+    sv_classify(args.vcf_in, args.gender, ae_dict, args.f_overlap)
 
     # close the files
     args.vcf_in.close()
+    args.gender.close()
     if args.ae_path is not None:
         ae_bedfile.close()
 
