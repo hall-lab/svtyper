@@ -384,6 +384,9 @@ def annotation_intersect(var, ae_dict, threshold):
         var_end = int(var.info['END'])
         i = 0
         while 1:
+            # bail if end of dict
+            if i >= len(ae_dict[var.chrom]):
+                break
             feature = ae_dict[var.chrom][i]
             if feature[0] - slop < var_end:
                 if feature[1] + slop > var_start:
