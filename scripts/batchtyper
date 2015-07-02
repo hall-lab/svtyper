@@ -271,60 +271,6 @@ class Genotype(object):
                 g_list.append('.')
         return ':'.join(map(str,g_list))
 
-# test whether variant has read depth support
-def has_depth_support(var, gender):
-    slope_threshold = 0.1
-    rsquared_threshold = 0.1
-    
-    if 'CN' in var.active_formats:
-        gt_list = []
-        for s in var.sample_list:
-            gt_str = var.genotype(s).get_format('GT')
-            if '.' in gt_str:
-                gt_list.append(-1)
-                continue
-
-            sep = '/'
-            if sep not in gt_str:
-                sep = '|'
-            gt_list.append(sum(map(int, gt_str.split(sep))))
-
-        # populate read-depth list, accounting for sample gender
-        rd_list = []
-        for s in var.sample_list:
-            if (var.chrom == 'X' or var.chrom == 'Y') and gender[s] == 1:
-                rd_list.append(float(var.genotype(s).get_format('CN')) * 2)
-            else:
-                rd_list.append(float(var.genotype(s).get_format('CN')))
-
-        rd = np.array([gt_list, rd_list])
-
-        # remove missing genotypes
-        rd = rd[:, rd[0]!=-1]
-
-        # ensure non-uniformity in genotype and read depth
-        if len(np.unique(rd[0,:])) > 1 and len(np.unique(rd[1,:])) > 1:
-            # calculate regression
-            (slope, intercept, r_value, p_value, std_err) = stats.linregress(rd)
-            # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
-
-            # # write the scatterplot to a file
-            # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
-            # np.savetxt(f, np.transpose(rd), delimiter='\t')
-            # f.close()
-            
-            if r_value ** 2 < rsquared_threshold:
-                return False
-
-            if var.info['SVTYPE'] == 'DEL':
-                slope = -slope
-
-            if slope < slope_threshold:
-                return False
-
-            return True
-    return False
-
 # efficient combinatorial function to handle extremely large numbers
 def log_choose(n, k):
     r = 0.0
@@ -341,12 +287,24 @@ def log_choose(n, k):
 
 # return the genotype and log10 p-value
 def bayes_gt(ref, alt, p_alt):
-
     total = ref + alt
 
-    lp_homref = log_choose(total, alt) + alt * math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
-    lp_het = log_choose(total, alt) + alt * math.log(p_alt[1], 10) + ref * math.log(1 - p_alt[1], 10)
-    lp_homalt = log_choose(total, alt) + alt * math.log(p_alt[2], 10) + ref * math.log(1 - p_alt[2], 10)
+    print ref, alt, p_alt
+
+
+    # catch the log 0 doman ValueErrors
+    try:
+        lp_homref = log_choose(total, alt) + alt * math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
+    except ValueError:
+        lp_homref = 0
+    try:
+        lp_het = log_choose(total, alt) + alt * math.log(p_alt[1], 10) + ref * math.log(1 - p_alt[1], 10)
+    except ValueError:
+        lp_het = 0
+    try:
+        lp_homalt = log_choose(total, alt) + alt * math.log(p_alt[2], 10) + ref * math.log(1 - p_alt[2], 10)
+    except ValueError:
+        lp_homalt = 0
 
     return (lp_homref, lp_het, lp_homalt)
 
