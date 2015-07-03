@@ -276,17 +276,15 @@ def has_depth_support(var, gender):
     rsquared_threshold = 0.1
     
     if 'CN' in var.active_formats:
-        gt_list = []
+        # allele balance list
+        ab_list = []
         for s in var.sample_list:
-            gt_str = var.genotype(s).get_format('GT')
-            if '.' in gt_str:
-                gt_list.append(-1)
+            ab_str = var.genotype(s).get_format('AB')
+            if '.' in ab_str:
+                ab_list.append(-1)
                 continue
 
-            sep = '/'
-            if sep not in gt_str:
-                sep = '|'
-            gt_list.append(sum(map(int, gt_str.split(sep))))
+            ab_list.append(float(ab_str))
 
         # populate read-depth list, accounting for sample gender
         rd_list = []
@@ -296,7 +294,7 @@ def has_depth_support(var, gender):
             else:
                 rd_list.append(float(var.genotype(s).get_format('CN')))
 
-        rd = numpy.array([gt_list, rd_list])
+        rd = numpy.array([ab_list, rd_list])
 
         # remove missing genotypes
         rd = rd[:, rd[0]!=-1]
@@ -307,10 +305,10 @@ def has_depth_support(var, gender):
             (slope, intercept, r_value, p_value, std_err) = stats.linregress(rd)
             # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
 
-            # # write the scatterplot to a file
-            # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
-            # numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
-            # f.close()
+            # write the scatterplot to a file
+            f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+            numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
+            f.close()
             
             if r_value ** 2 < rsquared_threshold:
                 return False
