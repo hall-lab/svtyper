@@ -289,9 +289,6 @@ def log_choose(n, k):
 def bayes_gt(ref, alt, p_alt):
     total = ref + alt
 
-    print ref, alt, p_alt
-
-
     # catch the log 0 doman ValueErrors
     try:
         lp_homref = log_choose(total, alt) + alt * math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
@@ -333,6 +330,7 @@ def batchtyper(vcf_in):
         # populate allele balance list
         if 'AB' in var.active_formats:
             ab_list = []
+            qual = 0
             for s in var.sample_list:
                 allele_bal = var.genotype(s).get_format('AB')
                 if allele_bal != '.':
@@ -347,39 +345,49 @@ def batchtyper(vcf_in):
             p_alt = np.sort(g.means_, axis=None)
             
             for s in var.sample_list:
-                gt_lplist = bayes_gt(int(var.genotype(s).get_format('RO')),
-                                     int(var.genotype(s).get_format('AO')),
-                                     p_alt)
-                gt_idx = gt_lplist.index(max(gt_lplist))
-                # print gt_idx, gt_lplist
+                RO = int(var.genotype(s).get_format('RO'))
+                AO = int(var.genotype(s).get_format('AO'))
+                if AO + RO > 0:
+                    gt_lplist = bayes_gt(RO,
+                                         AO,
+                                         p_alt)
+                    gt_idx = gt_lplist.index(max(gt_lplist))
+                    # print gt_idx, gt_lplist
 
-                # assign genotypes
-                gt_sum = 0
-                for gt in gt_lplist:
-                    try:
-                        gt_sum += 10**gt
-                    except OverflowError:
-                        gt_sum += 0
-                if gt_sum > 0:
-                    gt_sum_log = math.log(gt_sum, 10)
-                    sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
-                    if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
-                        phred_gq = 200
+                    # assign genotypes
+                    gt_sum = 0
+                    for gt in gt_lplist:
+                        try:
+                            gt_sum += 10**gt
+                        except OverflowError:
+                            gt_sum += 0
+                    if gt_sum > 0:
+                        gt_sum_log = math.log(gt_sum, 10)
+                        sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
+                        qual += sample_qual
+                        try:
+                            phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
+                        except ValueError: # catch if log of 0
+                            phred_gq = 200
+                        var.genotype(s).set_format('GQ', phred_gq)
+                        var.genotype(s).set_format('SQ', sample_qual)
+                        var.qual += sample_qual
+                        if gt_idx == 1:
+                            var.genotype(s).set_format('GT', '0/1')
+                        elif gt_idx == 2:
+                            var.genotype(s).set_format('GT', '1/1')
+                        elif gt_idx == 0:
+                            var.genotype(s).set_format('GT', '0/0')
                     else:
-                        phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
-                    var.genotype(s).set_format('GQ', phred_gq)
-                    var.genotype(s).set_format('SQ', sample_qual)
-                    var.qual += sample_qual
-                    if gt_idx == 1:
-                        var.genotype(s).set_format('GT', '0/1')
-                    elif gt_idx == 2:
-                        var.genotype(s).set_format('GT', '1/1')
-                    elif gt_idx == 0:
-                        var.genotype(s).set_format('GT', '0/0')
+                        var.genotype(s).set_format('GQ', '.')
+                        var.genotype(s).set_format('SQ', '.')
+                        var.genotype(s).set_format('GT', './.')
+                # no depth at locus
                 else:
                     var.genotype(s).set_format('GQ', '.')
                     var.genotype(s).set_format('SQ', '.')
                     var.genotype(s).set_format('GT', './.')
+            var.qual = qual
 
             # # write the scatterplot to a file
             # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
