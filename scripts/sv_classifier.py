@@ -280,7 +280,7 @@ def has_depth_support(var, gender):
         ab_list = []
         for s in var.sample_list:
             ab_str = var.genotype(s).get_format('AB')
-            if '.' in ab_str:
+            if ab_str == '.':
                 ab_list.append(-1)
                 continue
 
@@ -305,10 +305,10 @@ def has_depth_support(var, gender):
             (slope, intercept, r_value, p_value, std_err) = stats.linregress(rd)
             # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
 
-            # write the scatterplot to a file
-            f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
-            numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
-            f.close()
+            # # write the scatterplot to a file
+            # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+            # numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
+            # f.close()
             
             if r_value ** 2 < rsquared_threshold:
                 return False
