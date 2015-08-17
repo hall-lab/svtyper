@@ -793,16 +793,20 @@ def sv_genotype(vcf_file,
                 in_header = False
                 vcf.add_header(header)
                 # if detailed:
-                vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
-                vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
-                vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
-                vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
                 vcf.add_format('GQ', 1, 'Float', 'Genotype quality')
                 vcf.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
                 vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
                 vcf.add_format('DP', 1, 'Integer', 'Read depth')
                 vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
                 vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
+                vcf.add_format('QR', 1, 'Integer', 'Sum of quality of reference observations')
+                vcf.add_format('QA', 'A', 'Integer', 'Sum of quality of alternate observations')
+                vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
+                vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
+                vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
+                vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
+                vcf.add_format('AB', 'A', 'Float', 'Allele balance, fraction of observations from alternate allele, QA/(QR+QA)')
+
 
                 # add the samples in the BAM files to the VCF output
                 for sample in sample_list:
@@ -985,7 +989,9 @@ def sv_genotype(vcf_file,
                 # get bayesian classifier
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
-                gt_lplist = bayes_gt(int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref), int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt), is_dup)
+                QR = int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref)
+                QA = int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt)
+                gt_lplist = bayes_gt(QR, QA, is_dup)
                 gt_idx = gt_lplist.index(max(gt_lplist))
 
                 # print log probabilities of homref, het, homalt
@@ -995,13 +1001,20 @@ def sv_genotype(vcf_file,
                 # set the overall variant QUAL score and sample specific fields
                 var.genotype(sample.name).set_format('GL', ','.join(['%.0f' % x for x in gt_lplist]))
                 var.genotype(sample.name).set_format('DP', int(split_scaled_ref + split_scaled_alt + disc_scaled_ref + disc_scaled_alt))
-                var.genotype(sample.name).set_format('AO', int(split_scaled_alt + disc_scaled_alt))
                 var.genotype(sample.name).set_format('RO', int(split_scaled_ref + disc_scaled_ref))
+                var.genotype(sample.name).set_format('AO', int(split_scaled_alt + disc_scaled_alt))
+                var.genotype(sample.name).set_format('QR', QR)
+                var.genotype(sample.name).set_format('QA', QA)
                 # if detailed:
-                var.genotype(sample.name).set_format('AS', int(split_scaled_alt))
                 var.genotype(sample.name).set_format('RS', int(split_scaled_ref))
-                var.genotype(sample.name).set_format('AP', int(disc_scaled_alt))
+                var.genotype(sample.name).set_format('AS', int(split_scaled_alt))
                 var.genotype(sample.name).set_format('RP', int(disc_scaled_ref))
+                var.genotype(sample.name).set_format('AP', int(disc_scaled_alt))
+                try:
+                    var.genotype(sample.name).set_format('AB', '%.2g' % (QA / float(QR + QA)))
+                except ZeroDivisionError:
+                    var.genotype(sample.name).set_format('AB', '.')
+
 
                 # assign genotypes
                 gt_sum = 0
@@ -1044,6 +1057,9 @@ def sv_genotype(vcf_file,
                 var.genotype(sample.name).set_format('RS', 0)
                 var.genotype(sample.name).set_format('AP', 0)
                 var.genotype(sample.name).set_format('RP', 0)
+                var.genotype(sample.name).set_format('QR', 0)
+                var.genotype(sample.name).set_format('QA', 0)
+                var.genotype(sample.name).set_format('AB', '.')
 
         # after all samples have been processed, write
         vcf_out.write(var.get_var_string() + '\n')

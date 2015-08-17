@@ -1,34 +1,30 @@
 #!/usr/bin/env python
 
-<<<<<<< HEAD
-import argparse, sys
-import statsmodels
-=======
 import argparse, sys, copy, gzip
->>>>>>> dev
 import math, time, re
-import numpy
+import numpy as np
+from sklearn import mixture
 from scipy import stats
 from collections import Counter
 from argparse import RawTextHelpFormatter
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.2 $"
-__date__ = "$Date: 2014-04-28 14:31 $"
+__date__ = "$Date: 2015-07-02 14:37 $"
 
 # --------------------------------------
 # define functions
 
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
-sv_classifier.py\n\
+batchtyper\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: classify structural variants")
     parser.add_argument('-i', '--input', metavar='VCF', dest='vcf_in', type=argparse.FileType('r'), default=None, help='VCF input [stdin]')
-    parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
-    parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
-    parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
+    # parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
+    # parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
+    # parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
 
     # parse the arguments
     args = parser.parse_args()
@@ -275,148 +271,46 @@ class Genotype(object):
                 g_list.append('.')
         return ':'.join(map(str,g_list))
 
-# test whether variant has read depth support
-def has_depth_support(var, gender):
-    slope_threshold = 0.1
-    rsquared_threshold = 0.1
-    
-    if 'CN' in var.active_formats:
-        # allele balance list
-        ab_list = []
-        for s in var.sample_list:
-            ab_str = var.genotype(s).get_format('AB')
-            if ab_str == '.':
-                ab_list.append(-1)
-                continue
+# efficient combinatorial function to handle extremely large numbers
+def log_choose(n, k):
+    r = 0.0
+    # swap for efficiency if k is more than half of n
+    if k * 2 > n:
+        k = n - k
 
-            ab_list.append(float(ab_str))
+    for  d in xrange(1,k+1):
+        r += math.log(n, 10)
+        r -= math.log(d, 10)
+        n -= 1
 
-        # populate read-depth list, accounting for sample gender
-        rd_list = []
-        for s in var.sample_list:
-            if (var.chrom == 'X' or var.chrom == 'Y') and gender[s] == 1:
-                rd_list.append(float(var.genotype(s).get_format('CN')) * 2)
-            else:
-                rd_list.append(float(var.genotype(s).get_format('CN')))
+    return r
 
-        rd = numpy.array([ab_list, rd_list])
+# return the genotype and log10 p-value
+def bayes_gt(ref, alt, p_alt):
+    total = ref + alt
 
-        # remove missing genotypes
-        rd = rd[:, rd[0]!=-1]
+    # catch the log 0 doman ValueErrors
+    try:
+        lp_homref = log_choose(total, alt) + alt * math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
+    except ValueError:
+        lp_homref = 0
+    try:
+        lp_het = log_choose(total, alt) + alt * math.log(p_alt[1], 10) + ref * math.log(1 - p_alt[1], 10)
+    except ValueError:
+        lp_het = 0
+    try:
+        lp_homalt = log_choose(total, alt) + alt * math.log(p_alt[2], 10) + ref * math.log(1 - p_alt[2], 10)
+    except ValueError:
+        lp_homalt = 0
 
-        # ensure non-uniformity in genotype and read depth
-        if len(numpy.unique(rd[0,:])) > 1 and len(numpy.unique(rd[1,:])) > 1:
-            # calculate regression
-            (slope, intercept, r_value, p_value, std_err) = stats.linregress(rd)
-            # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
-
-            # # write the scatterplot to a file
-            # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
-            # numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
-            # f.close()
-            
-            if r_value ** 2 < rsquared_threshold:
-                return False
-
-            if var.info['SVTYPE'] == 'DEL':
-                slope = -slope
-
-            if slope < slope_threshold:
-                return False
-
-            return True
-    return False
-
-def to_bnd(var):
-    var1 = copy.deepcopy(var)
-    var2 = copy.deepcopy(var)
-
-    # update svtype
-    var1.info['SVTYPE'] = 'BND'
-    var2.info['SVTYPE'] = 'BND'
-
-    # update variant id
-    var1.info['EVENT'] = var.var_id
-    var2.info['EVENT'] = var.var_id
-    var1.var_id = var.var_id + "_1"
-    var2.var_id = var.var_id + "_2"
-    var1.info['MATEID'] = var2.var_id
-    var2.info['MATEID'] = var1.var_id
-    
-    # update position
-    var2.pos = var.info['END']
-
-    # update CIPOS and CIEND
-    var2.info['CIPOS'] = var.info['CIEND']
-    var2.info['CIEND'] = var.info['CIPOS']
-    var2.info['CIPOS95'] = var.info['CIEND95']
-    var2.info['CIEND95'] = var.info['CIPOS95']
-
-    # delete svlen and END
-    del var1.info['SVLEN']
-    del var2.info['SVLEN']
-    del var1.info['END']
-    del var2.info['END']
-
-    # add SECONDARY to var2
-    var2.info['SECONDARY'] = True
-
-    if var.info['SVTYPE'] == 'DEL':
-        var1.alt = 'N[%s:%s[' % (var.chrom, var.info['END'])
-        var2.alt = ']%s:%s]N' % (var.chrom, var.pos)
-
-    elif var.info['SVTYPE'] == 'DUP':
-        var1.alt = ']%s:%s]N' % (var.chrom, var.info['END'])
-        var2.alt = 'N[%s:%s[' % (var.chrom, var.pos)
-    return var1, var2
-
-def reciprocal_overlap(a, b):
-    # catch divide by zero error
-    if a[1] == a[0] or b[1] == b[0]:
-        return 0
-    overlap = float(min(a[1], b[1]) - max(a[0], b[0]))
-    return min(overlap / (a[1] - a[0]), overlap / (b[1] - b[0]))
-
-def annotation_intersect(var, ae_dict, threshold):
-    best_overlap = 0
-    best_feature = ''
-    slop = 100
-    
-    if var.chrom in ae_dict:
-        var_start = var.pos - 1
-        var_end = int(var.info['END'])
-        i = 0
-        while 1:
-            # bail if end of dict
-            if i >= len(ae_dict[var.chrom]):
-                break
-            feature = ae_dict[var.chrom][i]
-            if feature[0] - slop < var_end:
-                if feature[1] + slop > var_start:
-                    overlap = reciprocal_overlap([var_start, var_end], feature)
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_feature = feature[2]
-            else:
-                break
-            i += 1
-        if best_overlap >= threshold:
-            return best_feature
-
-    return None
+    return (lp_homref, lp_het, lp_homalt)
 
 # primary function
-def sv_classify(vcf_in, gender_file, ae_dict, f_overlap):
+def batchtyper(vcf_in):
     vcf_out = sys.stdout
     vcf = Vcf()
     header = []
     in_header = True
-
-    gender = {}
-    # read sample genders
-    for line in gender_file:
-        v = line.rstrip().split('\t')
-        gender[v[0]] = int(v[1])
 
     for line in vcf_in:
         if in_header:
@@ -433,31 +327,77 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap):
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
 
-        # check intersection with mobile elements
-        if ae_dict is not None and var.info['SVTYPE'] in ['DEL']:
-            ae = annotation_intersect(var, ae_dict, f_overlap)
-            if ae is not None:
-                if ae.startswith('SINE') or ae.startswith('LINE'):
-                    ae = 'ME:' + ae
-                var.alt = '<DEL:%s>' % ae
-                var.info['SVTYPE'] = 'DEL:%s' % ae
-                vcf_out.write(var.get_var_string() + '\n')
-                continue
+        # populate allele balance list
+        if 'AB' in var.active_formats:
+            ab_list = []
+            qual = 0
+            for s in var.sample_list:
+                allele_bal = var.genotype(s).get_format('AB')
+                if allele_bal != '.':
+                    ab_list.append(float(allele_bal))
 
-        # annotate based on read depth
-        if var.info['SVTYPE'] in ['DEL', 'DUP']:
-            if has_depth_support(var, gender):
-                # write variant
-                vcf_out.write(var.get_var_string() + '\n')
-            else:
-                for m_var in to_bnd(var):
-                    vcf_out.write(m_var.get_var_string() + '\n')
+            ab = np.array([ab_list]).transpose()
+            # print ab
+            
+            # make a mixture object with 3 modes (hom_ref, het, hom_alt)
+            g = mixture.GMM(n_components=3)
+            g.fit(ab)
+            p_alt = np.sort(g.means_, axis=None)
+            
+            for s in var.sample_list:
+                RO = int(var.genotype(s).get_format('RO'))
+                AO = int(var.genotype(s).get_format('AO'))
+                if AO + RO > 0:
+                    gt_lplist = bayes_gt(RO,
+                                         AO,
+                                         p_alt)
+                    gt_idx = gt_lplist.index(max(gt_lplist))
+                    # print gt_idx, gt_lplist
 
-        # variant is not DEL or DUP, just write out original
-        else:
-            vcf_out.write(var.get_var_string() + '\n')
+                    # assign genotypes
+                    gt_sum = 0
+                    for gt in gt_lplist:
+                        try:
+                            gt_sum += 10**gt
+                        except OverflowError:
+                            gt_sum += 0
+                    if gt_sum > 0:
+                        gt_sum_log = math.log(gt_sum, 10)
+                        sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
+                        qual += sample_qual
+                        try:
+                            phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
+                        except ValueError: # catch if log of 0
+                            phred_gq = 200
+                        var.genotype(s).set_format('GQ', phred_gq)
+                        var.genotype(s).set_format('SQ', sample_qual)
+                        var.qual += sample_qual
+                        if gt_idx == 1:
+                            var.genotype(s).set_format('GT', '0/1')
+                        elif gt_idx == 2:
+                            var.genotype(s).set_format('GT', '1/1')
+                        elif gt_idx == 0:
+                            var.genotype(s).set_format('GT', '0/0')
+                    else:
+                        var.genotype(s).set_format('GQ', '.')
+                        var.genotype(s).set_format('SQ', '.')
+                        var.genotype(s).set_format('GT', './.')
+                # no depth at locus
+                else:
+                    var.genotype(s).set_format('GQ', '.')
+                    var.genotype(s).set_format('SQ', '.')
+                    var.genotype(s).set_format('GT', './.')
+            var.qual = qual
+
+            # # write the scatterplot to a file
+            # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+            # numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
+            # f.close()
+
+        vcf_out.write(var.get_var_string() + '\n')
     vcf_out.close()
     return
+
 
 # --------------------------------------
 # main function
@@ -466,34 +406,14 @@ def main():
     # parse the command line args
     args = get_args()
 
-    # load the annotated elements
-    ae_dict = None
-    if args.ae_path is not None:
-        if args.ae_path.endswith('.gz'):
-            ae_bedfile = gzip.open(args.ae_path, 'rb')
-        else:
-            ae_bedfile = open(args.ae_path, 'r')
-        ae_dict = {}
-
-        for line in ae_bedfile:
-            v = line.rstrip().split('\t')
-            if len(v) < 4:
-                continue
-            v[1] = int(v[1])
-            v[2] = int(v[2])
-            if v[0] in ae_dict:
-                ae_dict[v[0]].append(v[1:])
-            else:
-                ae_dict[v[0]] = [v[1:]]
+    # seed
+    np.random.seed(1)
 
     # call primary function
-    sv_classify(args.vcf_in, args.gender, ae_dict, args.f_overlap)
+    batchtyper(args.vcf_in)
 
     # close the files
     args.vcf_in.close()
-    args.gender.close()
-    if args.ae_path is not None:
-        ae_bedfile.close()
 
 # initialize the script
 if __name__ == '__main__':

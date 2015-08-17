@@ -304,16 +304,20 @@ def sv_genotype(vcf_file):
                 in_header = False
                 vcf.add_header(header)
                 # if detailed:
+                vcf.add_format('GQ', 1, 'Float', 'Genotype quality')
+                vcf.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
+                vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible gen\
+otype generated from the reference and alternate alleles given the sample ploidy')
+                vcf.add_format('DP', 1, 'Integer', 'Read depth')
+                vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
+                vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
+                vcf.add_format('QR', 1, 'Integer', 'Sum of quality of reference observations')
+                vcf.add_format('QA', 'A', 'Integer', 'Sum of quality of alternate observations')
                 vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
                 vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
                 vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
                 vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
-                vcf.add_format('GQ', 1, 'Float', 'Genotype quality')
-                vcf.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
-                vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
-                vcf.add_format('DP', 1, 'Integer', 'Read depth')
-                vcf.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
-                vcf.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
+                vcf.add_format('AB', 'A', 'Float', 'Allele balance, fraction of observations from alternate allele, QA/(QR+QA)')
 
                 # write the output header
                 if len(vcf_samples) > 0:
