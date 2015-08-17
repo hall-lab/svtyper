@@ -307,21 +307,27 @@ def bayes_gt(ref, alt, is_dup):
     return (lp_homref, lp_het, lp_homalt)
 
 # return the 5' alignment coordinate of the mate read by parsing the MC (mate cigar) SAM field
+# biobambam puts the coordinate of the mate's pair in the MC flag, while samblaster provides a CIGAR string
 def get_mate_5prime(bam, read):
     # if 'MC' in [t[0] for t in read.tags]:
     try:
         mc = read.opt('MC') # the mate CIGAR string
         if mc == '*':
             return
-        keys = re.findall('[MIDNSHPX=]+', mc)
-        nums = map(int, re.findall('[^MIDNSHPX=]+', mc))
+        # try to find from a coordinate (biobambam style)
+        try:
+            p = int(mc)
+        # otherwise get it from a CIGAR string (samblaster style)
+        except ValueError:
+            keys = re.findall('[MIDNSHPX=]+', mc)
+            nums = map(int, re.findall('[^MIDNSHPX=]+', mc))
 
-        p = read.pnext
-        for i in xrange(len(keys)):
-            k = keys[i]
-            n = nums[i]
-            if k == 'M' or k == 'N' or k == 'D':
-                p += n
+            p = read.pnext
+            for i in xrange(len(keys)):
+                k = keys[i]
+                n = nums[i]
+                if k == 'M' or k == 'N' or k == 'D':
+                    p += n
     except KeyError:
         p = bam.mate(read).aend
     return p
