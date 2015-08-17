@@ -22,3 +22,6 @@ zcat NA12878.20.vcf.gz \
         -S NA12878.20.splitters.bam \
         > NA12878.20.gt.vcf
 ```
+#### Warning
+2015-06-17  
+At the moment, SVTyper only works properly when BAMs were aligned using the -M flag to mark shorter reads as secondary alignments. This causes errors like [#7](https://github.com/cc2qe/svtyper/issues/7). We are working on a fix for this.
