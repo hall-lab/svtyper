@@ -28,7 +28,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
-    # parser.add_argument('-d', '--detailed', action='store_true', required=False, help='more detailed VCF format fields')
+    parser.add_argument('-M', action='store_true', dest='legacy', required=False, help='split reads are flagged as secondary, not supplementary. For compatibility with legacy BWA-MEM "-M" flag')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
     # parse the arguments
@@ -378,7 +378,8 @@ def count_pairedend(chrom,
             lib = sample.get_lib(read.opt('RG')) # get the read's library
             if (read.is_reverse
                 or not read.mate_is_reverse
-                or read.is_secondary
+                or (legacy and read.is_secondary)
+                or (not legacy and read.flag & 2048 == 2048)
                 or read.is_unmapped
                 or read.mate_is_unmapped
                 or read.is_duplicate
@@ -411,7 +412,8 @@ def count_pairedend(chrom,
             for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (read.is_reverse
-                    or read.is_secondary
+                    or (legacy and read.is_secondary)
+                    or (not legacy and read.flag & 2048 == 2048)
                     or read.is_unmapped
                     or read.mate_is_unmapped
                     or read.is_duplicate
@@ -464,7 +466,8 @@ def count_pairedend(chrom,
             lib = sample.get_lib(read.opt('RG')) # get the read's library
             if (not read.is_reverse
                 or read.mate_is_reverse
-                or read.is_secondary
+                or (legacy and read.is_secondary)
+                or (not legacy and read.flag & 2048 == 2048)
                 or read.is_unmapped
                 or read.mate_is_unmapped
                 or read.is_duplicate
@@ -496,7 +499,8 @@ def count_pairedend(chrom,
             for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (not read.is_reverse
-                    or read.is_secondary
+                    or (legacy and read.is_secondary)
+                    or (not legacy and read.flag & 2048 == 2048)
                     or read.is_unmapped
                     or read.mate_is_unmapped
                     or read.is_duplicate
@@ -681,7 +685,8 @@ class Library(object):
                 or not read.mate_is_reverse
                 or read.is_unmapped
                 or read.mate_is_unmapped
-                or read.is_secondary
+                or (legacy and read.is_secondary)
+                or (not legacy and read.flag & 2048 == 2048)
                 or read.tlen <= 0
                 or read.opt('RG') not in self.readgroups):
                 continue
@@ -1078,6 +1083,9 @@ def sv_genotype(vcf_file,
 def main():
     # parse the command line args
     args = get_args()
+
+    global legacy
+    legacy = args.legacy
 
     # call primary function
     sv_genotype(args.input_vcf,
