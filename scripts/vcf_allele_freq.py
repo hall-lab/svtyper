@@ -305,6 +305,7 @@ def add_af(vcf_file):
                 vcf.add_header(header)
                 
                 vcf.add_info('AF', 'A', 'Float', 'Allele Frequency, for each ALT allele, in the same order as listed')
+                vcf.add_info('NSAMP', '1', 'Integer', 'Number of samples with non-reference genotypes')
 
                 # write the output header
                 if len(vcf_samples) > 0:
@@ -318,6 +319,7 @@ def add_af(vcf_file):
         # extract genotypes from VCF
         num_alt = len(var.alt.split(','))
         alleles = [0] * (num_alt + 1)
+        num_samp = 0
         for sample in vcf.sample_list:
             gt_string = var.genotype(sample).get_format('GT')
             if '.' in  gt_string:
@@ -330,6 +332,9 @@ def add_af(vcf_file):
             for i in xrange(len(gt)):
                 alleles[gt[i]] += 1
 
+            if alleles[gt[i]] > 0:
+                num_samp += 1
+
         allele_sum = float(sum(alleles))
         allele_freq = ['.'] * len(alleles)
 
@@ -340,6 +345,9 @@ def add_af(vcf_file):
             var.info['AF'] = ','.join(map(str, ['%.4g' % a for a in allele_freq[1:]]))
         else:
             var.info['AF'] = ','.join(map(str, allele_freq[1:]))
+        
+        # populate NSAMP
+        var.info['NSAMP'] = num_samp
 
         # after all samples have been processed, write
         vcf_out.write(var.get_var_string() + '\n')
