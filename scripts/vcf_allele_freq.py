@@ -238,18 +238,30 @@ class Variant(object):
             sys.stderr.write('\nError: invalid sample name, \"' + sample_name + '\"\n')
 
     def get_var_string(self):
-        s = '\t'.join(map(str,[
-            self.chrom,
-            self.pos,
-            self.var_id,
-            self.ref,
-            self.alt,
-            '%0.2f' % self.qual,
-            self.filter,
-            self.get_info_string(),
-            self.get_format_string(),
-            '\t'.join(self.genotype(s).get_gt_string() for s in self.sample_list)
-        ]))
+        if len(self.active_formats) == 0:
+            s = '\t'.join(map(str,[
+                self.chrom,
+                self.pos,
+                self.var_id,
+                self.ref,
+                self.alt,
+                '%0.2f' % self.qual,
+                self.filter,
+                self.get_info_string()
+            ]))
+        else:
+            s = '\t'.join(map(str,[
+                self.chrom,
+                self.pos,
+                self.var_id,
+                self.ref,
+                self.alt,
+                '%0.2f' % self.qual,
+                self.filter,
+                self.get_info_string(),
+                self.get_format_string(),
+                '\t'.join(self.genotype(s).get_gt_string() for s in self.sample_list)
+            ]))
         return s
 
 class Genotype(object):
@@ -295,33 +307,35 @@ def add_af(vcf_file):
     # read input VCF
     for line in vcf_file:
         if in_header:
-            if line[0] == '#':
+            if line.startswith('##'):
                 header.append(line) 
-                if line[1] != '#':
-                    vcf_samples = line.rstrip().split('\t')[9:]
                 continue
-            else:
+            elif line.startswith('#CHROM'):
+                v = line.rstrip().split('\t')
+                header.append('\t'.join(v[:8]))
+
                 in_header = False
                 vcf.add_header(header)
                 
                 vcf.add_info('AF', 'A', 'Float', 'Allele Frequency, for each ALT allele, in the same order as listed')
                 vcf.add_info('NSAMP', '1', 'Integer', 'Number of samples with non-reference genotypes')
 
-                # write the output header
-                if len(vcf_samples) > 0:
-                    vcf_out.write(vcf.get_header(include_samples=True) + '\n')
-                else:
-                    vcf_out.write(vcf.get_header(include_samples=False) + '\n')
+                # write header
+                vcf_out.write(vcf.get_header(include_samples=False))
+                vcf_out.write('\t' + '\t'.join(v[8:]) + '\n')
+            continue
 
         v = line.rstrip().split('\t')
-        var = Variant(v, vcf)
+        var = Variant(v[:8], vcf)
 
         # extract genotypes from VCF
         num_alt = len(var.alt.split(','))
         alleles = [0] * (num_alt + 1)
         num_samp = 0
-        for sample in vcf.sample_list:
-            gt_string = var.genotype(sample).get_format('GT')
+
+        for i in xrange(9,len(v)):
+            gt_string = v[i].split(':')[0]
+
             if '.' in  gt_string:
                 continue
             gt = gt_string.split('/')
@@ -351,7 +365,10 @@ def add_af(vcf_file):
         var.info['NSAMP'] = num_samp
 
         # after all samples have been processed, write
-        vcf_out.write(var.get_var_string() + '\n')
+        vcf_out.write(var.get_var_string()
+                      + '\t'
+                      + '\t'.join(v[8:])
+                      + '\n')
     vcf_out.close()
     
     return
