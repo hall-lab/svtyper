@@ -328,11 +328,12 @@ def add_af(vcf_file):
             if len(gt) == 1:
                 gt = gt_string.split('|')
             gt = map(int, gt)
-            
+
             for i in xrange(len(gt)):
                 alleles[gt[i]] += 1
 
-            if alleles[gt[i]] > 0:
+            # iterate the number of non-reference samples
+            if sum(gt) > 0:
                 num_samp += 1
 
         allele_sum = float(sum(alleles))
