@@ -1,11 +1,6 @@
 #!/usr/bin/env python
 
-<<<<<<< HEAD
-import argparse, sys
-import statsmodels
-=======
 import argparse, sys, copy, gzip
->>>>>>> dev
 import math, time, re
 import numpy
 from scipy import stats
