@@ -24,7 +24,7 @@ description: classify structural variants")
     parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
     parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
     parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
-    parser.add_argument('-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float, default=0.1, help='minimum slope absolute value of regression line to classify as DEL or DUP[0.1]')
+    parser.add_argument('-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float, default=1, help='minimum slope absolute value of regression line to classify as DEL or DUP[0.1]')
     parser.add_argument('-r', '--rsquared_threshold', metavar='FLOAT', dest='rsquared_threshold', type=float, default=0.2, help='minimum R^2 correlation value of regression line to classify as DEL or DUP [0.2]')
 
     # parse the arguments
@@ -308,7 +308,7 @@ def has_depth_support(var, gender, slope_threshold, rsquared_threshold):
             # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
 
             # # write the scatterplot to a file
-            # f = open('data/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+            # f = open('data/reclass/large_vars/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
             # numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
             # f.close()
             
