@@ -24,6 +24,8 @@ description: classify structural variants")
     parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
     parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
     parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
+    parser.add_argument('-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float, default=0.1, help='minimum slope absolute value of regression line to classify as DEL or DUP[0.1]')
+    parser.add_argument('-r', '--rsquared_threshold', metavar='FLOAT', dest='rsquared_threshold', type=float, default=0.2, help='minimum R^2 correlation value of regression line to classify as DEL or DUP [0.2]')
 
     # parse the arguments
     args = parser.parse_args()
@@ -271,9 +273,9 @@ class Genotype(object):
         return ':'.join(map(str,g_list))
 
 # test whether variant has read depth support
-def has_depth_support(var, gender):
-    slope_threshold = 0.1
-    rsquared_threshold = 0.1
+def has_depth_support(var, gender, slope_threshold, rsquared_threshold):
+    # slope_threshold = 0.1
+    # rsquared_threshold = 0.1
     
     if 'CN' in var.active_formats:
         # allele balance list
@@ -401,7 +403,7 @@ def annotation_intersect(var, ae_dict, threshold):
     return None
 
 # primary function
-def sv_classify(vcf_in, gender_file, ae_dict, f_overlap):
+def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquared_threshold):
     vcf_out = sys.stdout
     vcf = Vcf()
     header = []
@@ -424,8 +426,22 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap):
                 # write the output header
                 vcf_out.write(vcf.get_header() + '\n')
 
-        # parse variant line
+        # split variant line, quick pre-check if the SVTYPE is BND, and skip if so
         v = line.rstrip().split('\t')
+
+        info = v[7].split(';')
+        svtype = None
+        for x in info:
+            if x.startswith('SVTYPE='):
+                svtype = x.split('=')[1]
+                break
+
+        # bail if not DEL or DUP prior to reclassification
+        if svtype not in ['DEL', 'DUP']:
+            vcf_out.write(line)
+            continue
+
+        # parse the VCF line
         var = Variant(v, vcf)
 
         # check intersection with mobile elements
@@ -441,16 +457,13 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap):
 
         # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
-            if has_depth_support(var, gender):
+            if has_depth_support(var, gender, slope_threshold, rsquared_threshold):
                 # write variant
                 vcf_out.write(var.get_var_string() + '\n')
             else:
                 for m_var in to_bnd(var):
                     vcf_out.write(m_var.get_var_string() + '\n')
 
-        # variant is not DEL or DUP, just write out original
-        else:
-            vcf_out.write(var.get_var_string() + '\n')
     vcf_out.close()
     return
 
@@ -482,7 +495,7 @@ def main():
                 ae_dict[v[0]] = [v[1:]]
 
     # call primary function
-    sv_classify(args.vcf_in, args.gender, ae_dict, args.f_overlap)
+    sv_classify(args.vcf_in, args.gender, ae_dict, args.f_overlap, args.slope_threshold, args.rsquared_threshold)
 
     # close the files
     args.vcf_in.close()
