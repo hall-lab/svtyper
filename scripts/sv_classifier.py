@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-import argparse, sys, copy, gzip
+import argparse, sys, copy, gzip, os
 import math, time, re
-import numpy
+import numpy as np
 from scipy import stats
 from collections import Counter
 from argparse import RawTextHelpFormatter
@@ -24,7 +24,7 @@ description: classify structural variants")
     parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
     parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
     parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
-    parser.add_argument('-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float, default=1, help='minimum slope absolute value of regression line to classify as DEL or DUP[0.1]')
+    parser.add_argument('-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float, default=1.0, help='minimum slope absolute value of regression line to classify as DEL or DUP[1.0]')
     parser.add_argument('-r', '--rsquared_threshold', metavar='FLOAT', dest='rsquared_threshold', type=float, default=0.2, help='minimum R^2 correlation value of regression line to classify as DEL or DUP [0.2]')
 
     # parse the arguments
@@ -272,8 +272,18 @@ class Genotype(object):
                 g_list.append('.')
         return ':'.join(map(str,g_list))
 
-# test whether variant has read depth support
-def has_depth_support(var, gender, slope_threshold, rsquared_threshold):
+# http://stackoverflow.com/questions/8930370/where-can-i-find-mad-mean-absolute-deviation-in-scipy
+def mad(arr):
+    """ Median Absolute Deviation: a "Robust" version of standard deviation.
+        Indices variabililty of the sample.
+        https://en.wikipedia.org/wiki/Median_absolute_deviation 
+    """
+    arr = np.ma.array(arr).compressed() # should be faster to not use masked arrays.
+    med = np.median(arr)
+    return np.median(np.abs(arr - med))
+
+# test whether variant has read depth support by regression
+def has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold):
     # slope_threshold = 0.1
     # rsquared_threshold = 0.1
     
@@ -296,22 +306,32 @@ def has_depth_support(var, gender, slope_threshold, rsquared_threshold):
             else:
                 rd_list.append(float(var.genotype(s).get_format('CN')))
 
-        rd = numpy.array([ab_list, rd_list])
+        rd = np.array([ab_list, rd_list])
 
         # remove missing genotypes
         rd = rd[:, rd[0]!=-1]
 
         # ensure non-uniformity in genotype and read depth
-        if len(numpy.unique(rd[0,:])) > 1 and len(numpy.unique(rd[1,:])) > 1:
+        if len(np.unique(rd[0,:])) > 1 and len(np.unique(rd[1,:])) > 1:
             # calculate regression
             (slope, intercept, r_value, p_value, std_err) = stats.linregress(rd)
             # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
 
-            # # write the scatterplot to a file
-            # f = open('data/reclass/large_vars/%s_%s_%sbp.txt' % (var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
-            # numpy.savetxt(f, numpy.transpose(rd), delimiter='\t')
-            # f.close()
-            
+
+            # write the scatterplot to a file
+            if writedir is not None:
+
+                try:
+                    os.makedirs(writedir)
+                except OSError as exc: # Python >2.5
+                    if os.path.isdir(writedir):
+                        pass
+                    else: raise
+
+                f = open('%s/reg_%s_%s_%sbp.txt' % (writedir, var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+                np.savetxt(f, np.transpose(rd), delimiter='\t')
+                f.close()
+
             if r_value ** 2 < rsquared_threshold:
                 return False
 
@@ -323,6 +343,60 @@ def has_depth_support(var, gender, slope_threshold, rsquared_threshold):
 
             return True
     return False
+
+# test for read depth support of low frequency variants
+def has_low_freq_depth_support(var, gender, writedir=None):
+    mad_threshold = 1
+    mad_quorum = 0.5 # this fraction of the pos. genotyped results must meet the mad_threshold
+    
+    hom_ref_cn = []
+    het_cn = []
+    hom_alt_cn = []
+
+    for s in var.sample_list:
+        if var.genotype(s).get_format('GT') == '0/0':
+            hom_ref_cn.append(float(var.genotype(s).get_format('CN')))
+        elif var.genotype(s).get_format('GT') == '0/1':
+            het_cn.append(float(var.genotype(s).get_format('CN')))
+        elif var.genotype(s).get_format('GT') == '1/1':
+            hom_alt_cn.append(float(var.genotype(s).get_format('CN')))
+
+    cn_mean = np.mean(hom_ref_cn)
+    cn_stdev = np.std(hom_ref_cn)
+    cn_median = np.median(hom_ref_cn)
+    cn_mad = mad(hom_ref_cn)
+
+    # write the cn values to a file
+    if writedir is not None:
+
+        try:
+            os.makedirs(writedir)
+        except OSError as exc: # Python >2.5
+            if os.path.isdir(writedir):
+                pass
+            else: raise
+
+        f = open('%s/mad_%s_%s_%sbp.txt' % (writedir, var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+        for cn in hom_ref_cn:
+            f.write('\t'.join(map(str, [0, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
+        for cn in het_cn:
+            f.write('\t'.join(map(str, [1, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
+        for cn in hom_alt_cn:
+            f.write('\t'.join(map(str, [2, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
+        f.close()
+
+    # tally up the pos. genotyped samples meeting the mad_threshold
+    q = 0
+    for cn in het_cn + hom_alt_cn:
+        if var.info['SVTYPE'] == 'DEL':
+            cn = -cn
+        if cn - cn_median > (cn_mad * mad_threshold): q += 1
+
+    # check if meets quorum
+    if float(q)/len(het_cn + hom_alt_cn) > mad_quorum:
+        return True
+    else:
+        return False
 
 def to_bnd(var):
     var1 = copy.deepcopy(var)
@@ -408,6 +482,7 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquar
     vcf = Vcf()
     header = []
     in_header = True
+    min_pos_samps_for_regression = 10
 
     gender = {}
     # read sample genders
@@ -455,14 +530,41 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquar
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
 
+        # write to directory
+        writedir = 'data/r06'
+
         # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
-            if has_depth_support(var, gender, slope_threshold, rsquared_threshold):
-                # write variant
-                vcf_out.write(var.get_var_string() + '\n')
+            # count the number of positively genotyped samples
+            num_pos_samps = 0;
+            for s in var.sample_list:
+                if var.genotype(s).get_format('GT') not in ["./.", "0/0"]:
+                    num_pos_samps += 1
+
+            if num_pos_samps < min_pos_samps_for_regression:
+                if has_low_freq_depth_support(var, gender):
+                    has_low_freq_depth_support(var, gender, writedir + '/low_freq_rd')
+                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/low_freq_rd')
+                    # write variant
+                    vcf_out.write(var.get_var_string() + '\n')
+                else:
+                    has_low_freq_depth_support(var, gender, writedir + '/low_freq_rd')
+                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/low_freq_no_rd')
+                    for m_var in to_bnd(var):
+                        vcf_out.write(m_var.get_var_string() + '\n')
             else:
-                for m_var in to_bnd(var):
-                    vcf_out.write(m_var.get_var_string() + '\n')
+                if has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold):
+                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/high_freq_rd')
+                    has_low_freq_depth_support(var, gender, writedir + '/high_freq_rd')
+                    # write variant
+                    vcf_out.write(var.get_var_string() + '\n')
+                else:
+                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/high_freq_no_rd')
+                    has_low_freq_depth_support(var, gender, writedir + '/high_freq_no_rd')
+                        
+                    for m_var in to_bnd(var):
+                        vcf_out.write(m_var.get_var_string() + '\n')
+                
 
     vcf_out.close()
     return
