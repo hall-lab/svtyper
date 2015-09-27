@@ -22,6 +22,7 @@ version: " + __version__ + "\n\
 description: classify structural variants")
     parser.add_argument('-i', '--input', metavar='VCF', dest='vcf_in', type=argparse.FileType('r'), default=None, help='VCF input [stdin]')
     parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
+    parser.add_argument('-e', '--exclude', metavar='FILE', dest='exclude', type=argparse.FileType('r'), required=False, default=None, help='list of samples to exclude from classification algorithms')
     parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
     parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
     parser.add_argument('-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float, default=1.0, help='minimum slope absolute value of regression line to classify as DEL or DUP[1.0]')
@@ -283,7 +284,7 @@ def mad(arr):
     return np.median(np.abs(arr - med))
 
 # test whether variant has read depth support by regression
-def has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir=None):
+def has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir=None):
     # slope_threshold = 0.1
     # rsquared_threshold = 0.1
     
@@ -291,6 +292,8 @@ def has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold
         # allele balance list
         ab_list = []
         for s in var.sample_list:
+            if s in exclude:
+                continue
             ab_str = var.genotype(s).get_format('AB')
             if ab_str == '.':
                 ab_list.append(-1)
@@ -301,6 +304,8 @@ def has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold
         # populate read-depth list, accounting for sample gender
         rd_list = []
         for s in var.sample_list:
+            if s in exclude:
+                continue
             if (var.chrom == 'X' or var.chrom == 'Y') and gender[s] == 1:
                 rd_list.append(float(var.genotype(s).get_format('CN')) * 2)
             else:
@@ -344,7 +349,7 @@ def has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold
     return False
 
 # test for read depth support of low frequency variants
-def has_low_freq_depth_support(var, gender, writedir=None):
+def has_low_freq_depth_support(var, gender, exclude, writedir=None):
     mad_threshold = 2
     mad_quorum = 0.5 # this fraction of the pos. genotyped results must meet the mad_threshold
     absolute_cn_diff = 0.5
@@ -354,6 +359,8 @@ def has_low_freq_depth_support(var, gender, writedir=None):
     hom_alt_cn = []
 
     for s in var.sample_list:
+        if s in exclude:
+            continue
         if (var.chrom == 'X' or var.chrom == 'Y') and gender[s] == 1:
             cn = float(var.genotype(s).get_format('CN')) * 2
         else:
@@ -396,8 +403,9 @@ def has_low_freq_depth_support(var, gender, writedir=None):
             f.write('\t'.join(map(str, [2, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
         f.close()
 
-    # bail after writing out diagnostic info, if no ref samples
-    if len(hom_ref_cn) == 0:
+    # bail after writing out diagnostic info, if no ref samples or all ref samples
+    if (len(hom_ref_cn) == 0 or
+        len(het_cn + hom_alt_cn) == 0):
         return False
 
     # tally up the pos. genotyped samples meeting the mad_threshold
@@ -494,7 +502,7 @@ def annotation_intersect(var, ae_dict, threshold):
     return None
 
 # primary function
-def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquared_threshold):
+def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_threshold, rsquared_threshold):
     vcf_out = sys.stdout
     vcf = Vcf()
     header = []
@@ -506,6 +514,11 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquar
     for line in gender_file:
         v = line.rstrip().split('\t')
         gender[v[0]] = int(v[1])
+
+    exclude = []
+    if exclude_file is not None:
+        for line in exclude_file:
+            exclude.append(line.rstrip())
 
     for line in vcf_in:
         if in_header:
@@ -547,42 +560,41 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquar
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
 
-        # write to directory
-        writedir = 'data/r10.100kb.dup'
+        # # write to directory
+        # writedir = 'data/r10.100kb.dup'
 
         # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
             # count the number of positively genotyped samples
             num_pos_samps = 0;
             for s in var.sample_list:
+                if s in exclude:
+                    continue
                 if var.genotype(s).get_format('GT') not in ["./.", "0/0"]:
                     num_pos_samps += 1
 
             if num_pos_samps < min_pos_samps_for_regression:
-                if has_low_freq_depth_support(var, gender):
-                    has_low_freq_depth_support(var, gender, writedir + '/low_freq_rd')
-                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/low_freq_rd')
+                if has_low_freq_depth_support(var, gender, exclude):
+                    # has_low_freq_depth_support(var, gender, exclude, writedir + '/low_freq_rd')
+                    # has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir + '/low_freq_rd')
                     # write variant
                     vcf_out.write(var.get_var_string() + '\n')
                 else:
-                    has_low_freq_depth_support(var, gender, writedir + '/low_freq_no_rd')
-                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/low_freq_no_rd')
+                    # has_low_freq_depth_support(var, gender, exclude, writedir + '/low_freq_no_rd')
+                    # has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir + '/low_freq_no_rd')
                     for m_var in to_bnd(var):
                         vcf_out.write(m_var.get_var_string() + '\n')
             else:
-                if has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold):
-                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/high_freq_rd')
-                    has_low_freq_depth_support(var, gender, writedir + '/high_freq_rd')
+                if has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold):
+                    # has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir + '/high_freq_rd')
+                    # has_low_freq_depth_support(var, gender, exclude, writedir + '/high_freq_rd')
                     # write variant
                     vcf_out.write(var.get_var_string() + '\n')
                 else:
-                    has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold, writedir + '/high_freq_no_rd')
-                    has_low_freq_depth_support(var, gender, writedir + '/high_freq_no_rd')
-                        
+                    # has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir + '/high_freq_no_rd')
+                    # has_low_freq_depth_support(var, gender, exclude, writedir + '/high_freq_no_rd')
                     for m_var in to_bnd(var):
                         vcf_out.write(m_var.get_var_string() + '\n')
-                
-
     vcf_out.close()
     return
 
@@ -614,11 +626,18 @@ def main():
                 ae_dict[v[0]] = [v[1:]]
 
     # call primary function
-    sv_classify(args.vcf_in, args.gender, ae_dict, args.f_overlap, args.slope_threshold, args.rsquared_threshold)
+    sv_classify(args.vcf_in,
+                args.gender,
+                args.exclude,
+                ae_dict,
+                args.f_overlap,
+                args.slope_threshold,
+                args.rsquared_threshold)
 
     # close the files
     args.vcf_in.close()
     args.gender.close()
+    args.exclude.close()
     if args.ae_path is not None:
         ae_bedfile.close()
 
