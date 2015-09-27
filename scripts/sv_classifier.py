@@ -353,12 +353,17 @@ def has_low_freq_depth_support(var, gender, writedir=None):
     hom_alt_cn = []
 
     for s in var.sample_list:
+        if (var.chrom == 'X' or var.chrom == 'Y') and gender[s] == 1:
+            cn = float(var.genotype(s).get_format('CN')) * 2
+        else:
+            cn = float(var.genotype(s).get_format('CN'))
+
         if var.genotype(s).get_format('GT') == '0/0':
-            hom_ref_cn.append(float(var.genotype(s).get_format('CN')))
+            hom_ref_cn.append(cn)
         elif var.genotype(s).get_format('GT') == '0/1':
-            het_cn.append(float(var.genotype(s).get_format('CN')))
+            het_cn.append(cn)
         elif var.genotype(s).get_format('GT') == '1/1':
-            hom_alt_cn.append(float(var.genotype(s).get_format('CN')))
+            hom_alt_cn.append(cn)
 
     if len(hom_ref_cn) > 0:
         cn_mean = np.mean(hom_ref_cn)
@@ -541,7 +546,7 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquar
                 continue
 
         # write to directory
-        writedir = 'data/r07.100kb.del'
+        writedir = 'data/r08.100kb.dup'
 
         # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
