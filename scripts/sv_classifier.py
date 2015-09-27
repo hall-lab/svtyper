@@ -347,6 +347,7 @@ def has_high_freq_depth_support(var, gender, slope_threshold, rsquared_threshold
 def has_low_freq_depth_support(var, gender, writedir=None):
     mad_threshold = 2
     mad_quorum = 0.5 # this fraction of the pos. genotyped results must meet the mad_threshold
+    absolute_cn_diff = 0.5
     
     hom_ref_cn = []
     het_cn = []
@@ -405,8 +406,9 @@ def has_low_freq_depth_support(var, gender, writedir=None):
         resid = cn - cn_median
         if var.info['SVTYPE'] == 'DEL':
             resid = -resid
-        if resid > (cn_mad * mad_threshold): q += 1
-
+        if (resid > (cn_mad * mad_threshold) and
+            resid > absolute_cn_diff):
+            q += 1
     # check if meets quorum
     if float(q)/len(het_cn + hom_alt_cn) > mad_quorum:
         return True
@@ -546,7 +548,7 @@ def sv_classify(vcf_in, gender_file, ae_dict, f_overlap, slope_threshold, rsquar
                 continue
 
         # write to directory
-        writedir = 'data/r08.100kb.dup'
+        writedir = 'data/r10.100kb.dup'
 
         # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
