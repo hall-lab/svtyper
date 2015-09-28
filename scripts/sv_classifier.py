@@ -293,8 +293,8 @@ def has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_
         # allele balance list
         ab_list = []
         for s in var.sample_list:
-            if s in exclude:
-                continue
+            # if s in exclude:
+            #     continue
             ab_str = var.genotype(s).get_format('AB')
             if ab_str == '.':
                 ab_list.append(-1)
@@ -305,8 +305,8 @@ def has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_
         # populate read-depth list, accounting for sample gender
         rd_list = []
         for s in var.sample_list:
-            if s in exclude:
-                continue
+            # if s in exclude:
+            #     continue
             if (var.chrom == 'X' or var.chrom == 'Y') and gender[s] == 1:
                 rd_list.append(float(var.genotype(s).get_format('CN')) * 2)
             else:
@@ -620,7 +620,7 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
                 continue
 
         # # write to directory
-        # writedir = 'data/r10.100kb.dup'
+        # writedir = 'data/r11.100kb.dup'
 
         # annotate based on read depth
         if var.info['SVTYPE'] in ['DEL', 'DUP']:
