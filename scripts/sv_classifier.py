@@ -6,6 +6,7 @@ import numpy as np
 from scipy import stats
 from collections import Counter
 from argparse import RawTextHelpFormatter
+from operator import itemgetter
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.2 $"
@@ -466,20 +467,65 @@ def to_bnd(var):
         var2.alt = 'N[%s:%s[' % (var.chrom, var.pos)
     return var1, var2
 
-def reciprocal_overlap(a, b):
+def reciprocal_overlap(a, b_list):
+    overlap = 0
+    b_aggregate = 0
     # catch divide by zero error
-    if a[1] == a[0] or b[1] == b[0]:
+    if a[1] == a[0]:
         return 0
-    overlap = float(min(a[1], b[1]) - max(a[0], b[0]))
-    return min(overlap / (a[1] - a[0]), overlap / (b[1] - b[0]))
+
+    # update the overlap and b_aggregate
+    for b in b_list:
+        b_aggregate += (b[1] - b[0])
+        overlap += float(min(a[1], b[1]) - max(a[0], b[0]))
+
+    # catch divide by zero error
+    if b_aggregate == 0:
+        return 0
+
+    return min(overlap / (a[1] - a[0]), overlap / b_aggregate)
+
+def collapse_bed_records(bed_list):
+    bed_list_sorted = sorted(bed_list, key=itemgetter(1))
+
+    collapsed_bed_list = []
+    
+    i = 0
+    curr_rec = bed_list_sorted[i]
+    while i < len(bed_list_sorted):
+        # end at last element in list
+        if i == len(bed_list_sorted) - 1:
+            collapsed_bed_list.append(copy.copy(curr_rec))
+            break
+
+        # load next entry
+        next_rec = bed_list_sorted[i + 1]
+        # merge is overlap
+        if curr_rec[1] >= next_rec[0]:
+            # print curr_rec, next_rec
+            curr_rec[1] = next_rec[1]
+            # print curr_rec
+            i += 1
+        # write out if no overlap
+        else:
+            collapsed_bed_list.append(copy.copy(curr_rec))
+            i += 1
+            curr_rec = bed_list_sorted[i]
+
+    # print 'collapsed:', collapsed_bed_list
+    return collapsed_bed_list
 
 def annotation_intersect(var, ae_dict, threshold):
-    best_overlap = 0
+    best_frac_overlap = 0
     best_feature = ''
-    slop = 100
+    slop = 0
+
+    # dictionary with number of bases of overlap for each class
+    class_overlap = {}
     
+    # first check for reciprocal overlap
     if var.chrom in ae_dict:
-        var_start = var.pos - 1
+        var_start = var.pos
         var_end = int(var.info['END'])
         i = 0
         while 1:
@@ -489,14 +535,27 @@ def annotation_intersect(var, ae_dict, threshold):
             feature = ae_dict[var.chrom][i]
             if feature[0] - slop < var_end:
                 if feature[1] + slop > var_start:
-                    overlap = reciprocal_overlap([var_start, var_end], feature)
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_feature = feature[2]
+                    try:
+                        class_overlap[feature[2]].append(feature)
+                    except KeyError:
+                        class_overlap[feature[2]] = [feature]
             else:
                 break
             i += 1
-        if best_overlap >= threshold:
+
+        # print class_overlap
+        for me_class in class_overlap:
+            class_overlap[me_class] = collapse_bed_records(class_overlap[me_class])
+            # print 'class_overlap[me_class]:', class_overlap[me_class]
+            # print 'recip:', reciprocal_overlap([var_start, var_end], class_overlap[me_class])
+
+            frac_overlap = reciprocal_overlap([var_start, var_end], class_overlap[me_class])
+            if frac_overlap > best_frac_overlap:
+                best_frac_overlap = frac_overlap
+                best_feature = me_class
+
+
+        if best_frac_overlap >= threshold:
             return best_feature
 
     return None
@@ -553,10 +612,10 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
         if ae_dict is not None and var.info['SVTYPE'] in ['DEL']:
             ae = annotation_intersect(var, ae_dict, f_overlap)
             if ae is not None:
-                if ae.startswith('SINE') or ae.startswith('LINE'):
+                if ae.startswith('SINE') or ae.startswith('LINE') or ae.split('|')[2].startswith('SVA'):
                     ae = 'ME:' + ae
                 var.alt = '<DEL:%s>' % ae
-                var.info['SVTYPE'] = 'DEL:%s' % ae
+                var.info['SVTYPE'] = 'DEL:ME'
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
 
