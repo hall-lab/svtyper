@@ -615,7 +615,7 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
                 if ae.startswith('SINE') or ae.startswith('LINE') or ae.split('|')[2].startswith('SVA'):
                     ae = 'ME:' + ae
                 var.alt = '<DEL:%s>' % ae
-                var.info['SVTYPE'] = 'DEL:ME'
+                var.info['SVTYPE'] = 'MEI'
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
 
