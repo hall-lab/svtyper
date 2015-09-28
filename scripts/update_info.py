@@ -309,6 +309,7 @@ def update_info(vcf_file):
             else:
                 in_header = False
                 vcf.add_header(header)
+                vcf.add_info('MSQ', '1', 'Float', 'Mean sample quality of positively genotyped samples')
                 vcf.remove_info('SNAME')
 
                 # write the output header
@@ -323,13 +324,29 @@ def update_info(vcf_file):
         # count the PE and SR evidence from SVTyper
         var_pe = 0
         var_sr = 0
+        sum_sq = 0.0
+        num_pos = 0
+
         for sample in vcf.sample_list:
+            # get the PE and SR evidence
             var_pe += int(var.genotype(sample).get_format('AP'))
             var_sr += int(var.genotype(sample).get_format('AS'))
+
+            # get the mean sample quality
+            gt = var.genotype(sample).get_format('GT')
+            if gt != "0/0" and gt != "./.":
+                num_pos += 1
+                sum_sq += float(var.genotype(sample).get_format('SQ'))
+
+        if num_pos > 0:
+            msq = '%0.2f' % (sum_sq / num_pos)
+        else:
+            msq = '.'
 
         var.info['PE'] = str(var_pe)
         var.info['SR'] = str(var_sr)
         var.info['SU'] = str(var_pe + var_sr)
+        var.info['MSQ'] = str(msq)
 
         vcf_out.write(var.get_var_string() + '\n')
     vcf_out.close()
