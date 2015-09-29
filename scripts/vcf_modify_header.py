@@ -341,6 +341,7 @@ def mod_header(vcf_id,
                 in_header = False
                 vcf.add_header(header)
                 if category == 'INFO':
+                    vcf.remove_info(vcf_id)
                     vcf.add_info(vcf_id, number, f_type, description)
                 elif category == 'FORMAT':
                     vcf.add_format(vcf_id, number, f_type, description)
