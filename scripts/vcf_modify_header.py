@@ -69,6 +69,10 @@ class Vcf(object):
                 a = line[line.find('<')+1:line.find('>')]
                 r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
                 self.add_format(*[b.split('=')[1] for b in r.findall(a)])
+            elif line.split('=')[0] == '##FILTER':
+                a = line[line.find('<')+1:-2]
+                r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
+                self.add_filter(*[b.split('=')[1] for b in r.findall(a)])
             elif line[0] == '#' and line[1] != '#':
                 self.sample_list = line.rstrip().split('\t')[9:]
 
@@ -348,9 +352,7 @@ def mod_header(vcf_id,
                     vcf_out.write(vcf.get_header(include_samples=True) + '\n')
                 else:
                     vcf_out.write(vcf.get_header(include_samples=False) + '\n')
-
-        print line.rstrip()
-
+        vcf_out.write(line)
     vcf_out.close()
     
     return
