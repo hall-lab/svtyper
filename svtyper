@@ -20,7 +20,7 @@ author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
-    parser.add_argument('-S', '--split_bam', type=str, required=True, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
+    parser.add_argument('-S', '--split_bam', type=str, required=False, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
@@ -767,15 +767,20 @@ def sv_genotype(vcf_file,
     
     # parse the comma separated inputs
     bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
-    spl_bam_list = [pysam.Samfile(b, 'rb') for b in spl_bam_string.split(',')]
-
-    if len(bam_list) != len(spl_bam_list):
-        sys.stderr.write('\nError: Number of full BAMs and splitters BAMs differ.\n')
-        exit(1)
+    if spl_bam_string is not None:
+        spl_bam_list = [pysam.Samfile(b, 'rb') for b in spl_bam_string.split(',')]
+        if len(bam_list) != len(spl_bam_list):
+            sys.stderr.write('\nError: Number of full BAMs and splitters BAMs differ.\n')
+            exit(1)
+    else:
+        sys.stderr.write('Warning: Splitters BAM file (-S) not found. Performance will suffer.\n')
 
     sample_list = list()
     for i in xrange(len(bam_list)):
-        sample = Sample(bam_list[i], spl_bam_list[i], num_samp)
+        if spl_bam_string is None:
+            sample = Sample(bam_list[i], None, num_samp)
+        else:
+            sample = Sample(bam_list[i], spl_bam_list[i], num_samp)
         sample_list.append(sample)
 
     z = 3
@@ -878,23 +883,25 @@ def sv_genotype(vcf_file,
             spl_counter_a = Counter()
             ref_scaled_counter_a = Counter()
             spl_scaled_counter_a = Counter()
+            if spl_bam_string is not None:
+                for ref_read in sample.bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
+                    if not ref_read.is_duplicate and not ref_read.is_unmapped:
+                        for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
+                            if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
+                                ref_counter_a[p] += 1
+                                ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
 
-            for ref_read in sample.bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
-                if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                    for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
-                        if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                            ref_counter_a[p] += 1
-                            ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
-            for spl_read in sample.spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
-                if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                    if o1 == '+' and spl_read.cigar[0][0] == 0:
-                        # if debug: print 'o1+', spl_read.aend
-                        spl_counter_a[spl_read.aend] += 1
-                        spl_scaled_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
-                    elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                        # if debug: print 'o1-', spl_read.pos + 1
-                        spl_counter_a[spl_read.pos + 1] += 1
-                        spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
+
+                for spl_read in sample.spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
+                    if not spl_read.is_duplicate and not spl_read.is_unmapped:
+                        if o1 == '+' and spl_read.cigar[0][0] == 0:
+                            # if debug: print 'o1+', spl_read.aend
+                            spl_counter_a[spl_read.aend] += 1
+                            spl_scaled_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
+                        elif o1 == '-' and spl_read.cigar[-1][0] == 0:
+                            # if debug: print 'o1-', spl_read.pos + 1
+                            spl_counter_a[spl_read.pos + 1] += 1
+                            spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
 
             # Count paired-end discordant and concordants
             (conc_counter_a,
@@ -914,23 +921,23 @@ def sv_genotype(vcf_file,
             spl_counter_b = Counter()
             ref_scaled_counter_b = Counter()
             spl_scaled_counter_b = Counter()
-
-            for ref_read in sample.bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-                if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                    for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
-                        if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
-                            ref_counter_b[p] += 1
-                            ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
-            for spl_read in sample.spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-                if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                    if o2 == '+' and spl_read.cigar[0][0] == 0:
-                        spl_counter_b[spl_read.aend] += 1
-                        # if debug: print 'o2+', spl_read.aend
-                        spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
-                    elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                        # if debug: print 'o2-', spl_read.pos + 1
-                        spl_counter_b[spl_read.pos + 1] += 1
-                        spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
+            if spl_bam_string is not None:
+                for ref_read in sample.bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
+                    if not ref_read.is_duplicate and not ref_read.is_unmapped:
+                        for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
+                            if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
+                                ref_counter_b[p] += 1
+                                ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
+                for spl_read in sample.spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
+                    if not spl_read.is_duplicate and not spl_read.is_unmapped:
+                        if o2 == '+' and spl_read.cigar[0][0] == 0:
+                            spl_counter_b[spl_read.aend] += 1
+                            # if debug: print 'o2+', spl_read.aend
+                            spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
+                        elif o2 == '-' and spl_read.cigar[-1][0] == 0:
+                            # if debug: print 'o2-', spl_read.pos + 1
+                            spl_counter_b[spl_read.pos + 1] += 1
+                            spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
             
             # tally up the splitters
             sr_ref_a = int(round(sum(ref_counter_a[p] for p in xrange(posA - split_slop, posA + split_slop + 1)) / float(2 * split_slop + 1)))
