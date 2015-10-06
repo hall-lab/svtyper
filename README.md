@@ -23,5 +23,6 @@ zcat NA12878.20.vcf.gz \
         > NA12878.20.gt.vcf
 ```
 #### Warning
-2015-06-17  
-At the moment, SVTyper only works properly when BAMs were aligned using the -M flag to mark shorter reads as secondary alignments. This causes errors like [#7](https://github.com/cc2qe/svtyper/issues/7). We are working on a fix for this.
+2015-10-05
+
+As of commit [2c2ef7f91698a6d2929430f0865402ad421a8e3d](https://github.com/hall-lab/svtyper/commit/2c2ef7f91698a6d2929430f0865402ad421a8e3d), SVTyper assumes that BAMs were aligned with BWA MEM **without** the "-M" flag. If you used the "-M" flag in your alignment, then you should also use the "-M" flag when running SVTyper.
