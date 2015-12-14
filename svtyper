@@ -342,6 +342,9 @@ def get_mate_mapq(bam, read):
         mq = bam.mate(read).mapq
     return mq
 
+
+# @abi: def p_concordant(read_ospan, var_length, ins_dens, limit):
+
 # calculate the probability that a read is concordant at a deletion breakpoint,
 # given the putative deletion size and insert distribution of the library.
 def p_concordant(read_ospan, var_length, ins_dens):
@@ -353,18 +356,20 @@ def p_concordant(read_ospan, var_length, ins_dens):
         p = None
     return p
 
-def count_pairedend(chrom,
-                    pos,
-                    ci,
-                    mate_chrom,
-                    mate_pos,
-                    mate_ci,
-                    o1,
-                    o2,
-                    svtype,
-                    sample,
-                    z,
-                    discflank):
+
+# @abi: fix this function to evaluate both sides of the paired-end breakpoint at once
+def count_pairedend_both(chrom,
+                         pos,
+                         ci,
+                         mate_chrom,
+                         mate_pos,
+                         mate_ci,
+                         o1,
+                         o2,
+                         svtype,
+                         sample,
+                         z,
+                         discflank):
     conc_counter = 0
     disc_counter = 0
     conc_scaled_counter = 0
@@ -394,11 +399,14 @@ def count_pairedend(chrom,
                 ispan2 = get_mate_5prime(sample.bam, read) - discflank - 1 # speed up here
                 ispan = ispan2 - ispan1
                 prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
+                # @abi:
+                # prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens, limit_1e-5)
 
                 if ispan2 > pos and prob_conc is not None: # bail if neither concordant or discordant
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     # if a deletion, iterate the discordants for these too
+                    # @abi, i think this is right: if svtype == 'DEL' and ispan1 <= ci[1] and ispan2 >= mate_ci[0]:
                     if svtype == 'DEL' and ispan2 >= mate_ci[0]:
                         # disc_p = (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                         # if disc_p > 0.5:
@@ -548,6 +556,204 @@ def count_pairedend(chrom,
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
     return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
+
+
+
+# def count_pairedend(chrom,
+#                     pos,
+#                     ci,
+#                     mate_chrom,
+#                     mate_pos,
+#                     mate_ci,
+#                     o1,
+#                     o2,
+#                     svtype,
+#                     sample,
+#                     z,
+#                     discflank):
+#     conc_counter = 0
+#     disc_counter = 0
+#     conc_scaled_counter = 0
+#     disc_scaled_counter = 0
+#     
+#     fetch_flank = sample.get_fetch_flank(z)
+# 
+#     if o1 == '+' or svtype == 'INV':
+#         # survey for concordant read pairs
+#         for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
+#             lib = sample.get_lib(read.opt('RG')) # get the read's library
+#             if (read.is_reverse
+#                 or not read.mate_is_reverse
+#                 or (legacy and read.is_secondary)
+#                 or (not legacy and read.flag & 2048 == 2048)
+#                 or read.is_unmapped
+#                 or read.mate_is_unmapped
+#                 or read.is_duplicate
+#                 or read.pos + discflank > pos
+#                 or read.pnext + lib.read_length - discflank < pos
+#                 or read.tid != read.rnext):
+#                 continue
+#             else:
+#                 mate_mapq = get_mate_mapq(sample.bam, read)
+#                 ospan = get_mate_5prime(sample.bam, read) - read.pos
+#                 ispan1 = read.pos + discflank
+#                 ispan2 = get_mate_5prime(sample.bam, read) - discflank - 1 # speed up here
+#                 ispan = ispan2 - ispan1
+#                 prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
+# 
+#                 if ispan2 > pos and prob_conc is not None: # bail if neither concordant or discordant
+#                     conc_counter += 1
+#                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                     # if a deletion, iterate the discordants for these too
+#                     if svtype == 'DEL' and ispan2 >= mate_ci[0]:
+#                         # disc_p = (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                         # if disc_p > 0.5:
+#                         #     print ispan2, mate_ci[0]
+#                         #     print read
+#                         disc_counter += 1
+#                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+# 
+#         # now look at discordants for corresponding SV types
+#         if svtype != 'DEL':
+#             for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
+#                 lib = sample.get_lib(read.opt('RG')) # get the read's library
+#                 if (read.is_reverse
+#                     or (legacy and read.is_secondary)
+#                     or (not legacy and read.flag & 2048 == 2048)
+#                     or read.is_unmapped
+#                     or read.mate_is_unmapped
+#                     or read.is_duplicate
+#                     or read.pos + discflank > pos
+#                     or sample.bam.getrname(read.rnext) != mate_chrom):
+#                     continue
+# 
+#                 mate_mapq = get_mate_mapq(sample.bam, read) # move this for speed
+#                 mate_5prime = get_mate_5prime(sample.bam, read)
+#                 if svtype == 'DUP':
+#                     if not read.mate_is_reverse or read.pnext > read.pos or read.tid != read.rnext:
+#                         continue
+#                     ispan1 = read.pos + discflank
+#                     ispan2 = mate_5prime - discflank - 1
+#                     if ispan1 < pos and ispan2 < ispan1 and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
+#                         # print "+-", read
+#                         disc_counter += 1
+#                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                 elif svtype == 'INV':
+#                     if read.mate_is_reverse:
+#                         continue
+#                     ispan1 = read.pos + discflank
+#                     ispan2 = read.pnext + discflank
+#                     if ispan1 < pos and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
+#                         # print "++", read
+#                         disc_counter += 1
+#                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                 elif svtype == 'BND':
+#                     if o2 == '-':
+#                         if not read.mate_is_reverse or read.pnext + lib.read_length - discflank < mate_pos:
+#                             continue
+#                         ispan1 = read.pos + discflank
+#                         ispan2 = mate_5prime - discflank - 1
+#                         if ispan1 < pos and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
+#                             # print "+- BND", read
+#                             disc_counter += 1
+#                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                     if o2 == '+':
+#                         if read.mate_is_reverse or read.pnext + discflank > mate_pos:
+#                             continue
+#                         ispan1 = read.pos + discflank
+#                         ispan2 = read.pnext + discflank
+#                         if ispan1 < pos and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
+#                             disc_counter += 1
+#                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+# 
+#     if o1 == '-' or svtype == 'INV':
+#         # survey for concordant read pairs
+#         for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
+#             lib = sample.get_lib(read.opt('RG')) # get the read's library
+#             if (not read.is_reverse
+#                 or read.mate_is_reverse
+#                 or (legacy and read.is_secondary)
+#                 or (not legacy and read.flag & 2048 == 2048)
+#                 or read.is_unmapped
+#                 or read.mate_is_unmapped
+#                 or read.is_duplicate
+#                 or read.aend - discflank < pos
+#                 or read.pnext + discflank > pos
+#                 or read.tid != read.rnext):
+#                 continue
+#             else:
+#                 mate_mapq = get_mate_mapq(sample.bam, read)
+#                 ospan = read.aend - read.pnext
+#                 ispan1 = read.aend - discflank - 1
+#                 ispan2 = read.pnext + discflank
+#                 ispan = ispan1 - ispan2
+#                 prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
+# 
+#                 if ispan2 < pos and prob_conc is not None: # bail if neither concordant or discordant
+#                     conc_counter += 1
+#                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                     if svtype == 'DEL' and ispan2 <= mate_ci[1]:
+#                         # disc_p = (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                         # if disc_p > 0.5:
+#                         #     print ispan1, mate_ci[1]
+#                         #     print read
+#                         disc_counter += 1
+#                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+# 
+#         # now look at discordants for corresponding SV types
+#         if svtype != 'DEL':
+#             for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
+#                 lib = sample.get_lib(read.opt('RG')) # get the read's library
+#                 if (not read.is_reverse
+#                     or (legacy and read.is_secondary)
+#                     or (not legacy and read.flag & 2048 == 2048)
+#                     or read.is_unmapped
+#                     or read.mate_is_unmapped
+#                     or read.is_duplicate
+#                     or read.aend - discflank < pos
+#                     or sample.bam.getrname(read.rnext) != mate_chrom):
+#                     continue
+# 
+#                 mate_mapq = get_mate_mapq(sample.bam, read) # move this for speed
+#                 mate_5prime = get_mate_5prime(sample.bam, read)
+# 
+#                 if svtype == 'DUP':
+#                     if read.mate_is_reverse or read.pnext < read.pos or read.tid != read.rnext:
+#                         continue
+#                     ispan1 = read.aend - discflank - 1
+#                     ispan2 = read.pnext + discflank
+#                     if ispan1 > pos and ispan2 > ispan1 and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
+#                         # print "-+", read
+#                         disc_counter += 1
+#                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                 elif svtype == 'INV':
+#                     if not read.mate_is_reverse:
+#                         continue
+#                     ispan1 = read.aend - discflank - 1
+#                     ispan2 = mate_5prime - discflank - 1
+#                     if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
+#                         # print "--", read
+#                         disc_counter += 1
+#                         disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                 elif svtype == 'BND':
+#                     if o2 == '-':
+#                         if not read.mate_is_reverse or read.pnext + lib.read_length - discflank < mate_pos:
+#                             continue
+#                         ispan1 = read.aend - discflank - 1
+#                         ispan2 = mate_5prime - discflank - 1
+#                         if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
+#                             disc_counter += 1
+#                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+#                     if o2 == '+':
+#                         if read.mate_is_reverse or read.pnext + discflank > mate_pos:
+#                             continue
+#                         ispan1 = read.aend - discflank - 1
+#                         ispan2 = read.pnext + discflank
+#                         if ispan1 > pos and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
+#                             disc_counter += 1
+#                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
+# 
+#     return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
 
 # get the number of entries in the set
 def countRecords(myCounter):
@@ -876,7 +1082,7 @@ def sv_genotype(vcf_file,
         # for i in xrange(len(bam_list)):
         for sample in sample_list:
             '''
-            Breakend A
+            Breakend A splitters
             '''
             # Count splitters
             ref_counter_a = Counter()
@@ -902,19 +1108,9 @@ def sv_genotype(vcf_file,
                             # if debug: print 'o1-', spl_read.pos + 1
                             spl_counter_a[spl_read.pos + 1] += 1
                             spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
-
-            # Count paired-end discordant and concordants
-            (conc_counter_a,
-             disc_counter_a,
-             conc_scaled_counter_a,
-             disc_scaled_counter_a) = count_pairedend(chromA, posA, ciA,
-                                                      chromB, posB, ciB,
-                                                      o1, o2,
-                                                      var.info['SVTYPE'],
-                                                      sample,
-                                                      z, discflank)
+                
             '''
-            Breakend B
+            Breakend B splitters
             '''
             # Count splitters
             ref_counter_b = Counter()
@@ -938,6 +1134,56 @@ def sv_genotype(vcf_file,
                             # if debug: print 'o2-', spl_read.pos + 1
                             spl_counter_b[spl_read.pos + 1] += 1
                             spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
+                
+                # @abi: try to parse the SA tag ( SA:Z:20,61506574). Low priority. do paired end first
+
+
+
+            # ---------------------------------------------------------
+            # @abi: collapse this section into one
+            
+            # Count paired-end discordant and concordants
+            (conc_counter_a,
+             disc_counter_a,
+             conc_scaled_counter_a,
+             disc_scaled_counter_a) = count_pairedend_both(chromA, posA, ciA,
+                                                      chromB, posB, ciB,
+                                                      o1, o2,
+                                                      var.info['SVTYPE'],
+                                                      sample,
+                                                      z, discflank)            
+            
+            '''
+            Breakend A paired end
+            '''
+            # # Count paired-end discordant and concordants
+            # (conc_counter_a,
+            #  disc_counter_a,
+            #  conc_scaled_counter_a,
+            #  disc_scaled_counter_a) = count_pairedend(chromA, posA, ciA,
+            #                                           chromB, posB, ciB,
+            #                                           o1, o2,
+            #                                           var.info['SVTYPE'],
+            #                                           sample,
+            #                                           z, discflank)
+            
+            '''
+            Breakend b paired end
+            '''
+            # # Count paired-end discordants and concordants
+            # (conc_counter_b,
+            #  disc_counter_b,
+            #  conc_scaled_counter_b,
+            #  disc_scaled_counter_b) = count_pairedend(chromB, posB, ciB,
+            #                                           chromA, posA, ciA,
+            #                                           o2, o1,
+            #                                           var.info['SVTYPE'],
+            #                                           sample,
+            #                                           z, discflank)
+            
+
+
+            # ---------------------------------------------------------
             
             # tally up the splitters
             sr_ref_a = int(round(sum(ref_counter_a[p] for p in xrange(posA - split_slop, posA + split_slop + 1)) / float(2 * split_slop + 1)))
@@ -950,16 +1196,6 @@ def sv_genotype(vcf_file,
             sr_ref_scaled_b = sum(ref_scaled_counter_b[p] for p in xrange(posB - split_slop, posB + split_slop + 1)) / float(2 * split_slop + 1)
             sr_spl_scaled_b = sum(spl_scaled_counter_b[p] for p in xrange(posB - split_slop, posB + split_slop + 1))
 
-            # Count paired-end discordants and concordants
-            (conc_counter_b,
-             disc_counter_b,
-             conc_scaled_counter_b,
-             disc_scaled_counter_b) = count_pairedend(chromB, posB, ciB,
-                                                      chromA, posA, ciA,
-                                                      o2, o1,
-                                                      var.info['SVTYPE'],
-                                                      sample,
-                                                      z, discflank)
             if debug:
                 print '--------------------'
                 print sample.name
