@@ -38,7 +38,7 @@ description: Paste VCFs from multiple samples")
     return args
 
 # primary function
-def svt_join(master, sum_quals, vcf_list, safe=False):
+def svt_join(master, sum_quals, vcf_list):
     # if master not provided, set as first VCF
     if master is None:
         master_path = vcf_list[0].name
@@ -80,10 +80,6 @@ def svt_join(master, sum_quals, vcf_list, safe=False):
         if not master_line:
             break
         master_v = master_line.rstrip().split('\t')
-        if safe:
-            master_chrom = master_v[0]
-            master_pos = master_v[1]
-
         out_v = master_v[:8] # output array of fields
         qual = float(out_v[5])
         format = None # column 9, VCF format field.
@@ -94,9 +90,6 @@ def svt_join(master, sum_quals, vcf_list, safe=False):
                 sys.stderr.write('\nError: VCF files differ in length\n')
                 exit(1)
             line_v = line.rstrip().split('\t')
-            if safe:
-                line_chrom = line_v[0]
-                line_pos = line_v[1]
 
             # set FORMAT field as format in first VCF.
             # cannot extract this from master, since it may have
@@ -104,20 +97,6 @@ def svt_join(master, sum_quals, vcf_list, safe=False):
             if format is None:
                 format = line_v[8]
                 out_v.append(format)
-
-            if safe:
-                # ensure that each VCF position agrees with the master
-                if (master_chrom != line_chrom or
-                    master_pos != line_pos):
-                    sys.stderr.write('\nError: variant in %s (%s:%s) conflicts with master (%s:%s)\n' %
-                                     (vcf.name, line_chrom, line_pos, master_chrom, master_pos))
-                    exit(1)
-
-                # ensure that the format for all VCFs agree with the first
-                if (format != line_v[8]):
-                    sys.stderr.write('\nError: format in %s (%s) conflicts with first VCF (%s)\n' %
-                                     (vcf.name, line_v[8], format))
-                    exit(1)
 
             qual += float(line_v[5])
             out_v = out_v + line_v[9:]
