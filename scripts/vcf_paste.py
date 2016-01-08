@@ -39,6 +39,8 @@ description: Paste VCFs from multiple samples")
 
 # primary function
 def svt_join(master, sum_quals, vcf_list):
+    max_split=9
+
     # if master not provided, set as first VCF
     if master is None:
         master_path = vcf_list[0].name
@@ -60,6 +62,7 @@ def svt_join(master, sum_quals, vcf_list):
         print (master_line.rstrip())
 
     # get sample names
+    out_v = master_line.rstrip().split('\t', max_split)[:9]
     for vcf in vcf_list:
         while 1:
             line = vcf.readline()
@@ -68,18 +71,17 @@ def svt_join(master, sum_quals, vcf_list):
             if line[:2] == "##":
                 continue
             if line[0] == "#":
-                line_v = line.rstrip().split('\t')
-                for sample in line_v[9:]:
-                    sample_list.append(sample)
+                line_v = line.rstrip().split('\t', max_split)
+                out_v = out_v + line_v[9:]
                 break
-    print '\t'.join(master_line.rstrip().split('\t')[:8] + ['FORMAT'] + sample_list)
+    sys.stdout.write( '\t'.join(map(str, out_v)) + '\n')
     
     # iterate through VCF body
     while 1:
         master_line = master.readline()
         if not master_line:
             break
-        master_v = master_line.rstrip().split('\t')
+        master_v = master_line.rstrip().split('\t', max_split)
         out_v = master_v[:8] # output array of fields
         qual = float(out_v[5])
         format = None # column 9, VCF format field.
@@ -89,7 +91,7 @@ def svt_join(master, sum_quals, vcf_list):
             if not line:
                 sys.stderr.write('\nError: VCF files differ in length\n')
                 exit(1)
-            line_v = line.rstrip().split('\t')
+            line_v = line.rstrip().split('\t', max_split)
 
             # set FORMAT field as format in first VCF.
             # cannot extract this from master, since it may have
