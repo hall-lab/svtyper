@@ -2,6 +2,7 @@
 
 import argparse, sys
 from argparse import RawTextHelpFormatter
+import gzip
 
 __author__ = "Colby Chiang (cc2qe@virginia.edu)"
 __version__ = "$Revision: 0.0.1 $"
@@ -21,23 +22,34 @@ description: Paste VCFs from multiple samples")
     # parser.add_argument('-c', '--flagC', required=False, action='store_true', help='sets flagC to true')
     parser.add_argument('-m', '--master', type=argparse.FileType('r'), default=None, help='VCF file to set first 8 columns of variant info [first file in vcf_list]')
     parser.add_argument('-q', '--sum_quals', required=False, action='store_true', help='Sum QUAL scores of input VCFs as output QUAL score')
-    parser.add_argument('vcf_list', metavar='vcf', nargs='*', type=argparse.FileType('r'), default=None, help='VCF file(s) to join')
+    # parser.add_argument('-s', '--safe', action='store_true', help='Check to ensure the variant positions match the master. Safe, but slower.')
+    parser.add_argument('-f', '--vcf_list', required=True, help='Line-delimited list of VCF files to paste')
+
+    # parser.add_argument('vcf_list', metavar='vcf', nargs='*', type=argparse.FileType('r'), default=None, help='VCF file(s) to join')
 
     # parse the arguments
     args = parser.parse_args()
 
-    if len(args.vcf_list) < 1:
-        parser.print_help()
-        exit(1)
+    # if len(args.vcf_list) < 1:
+    #     parser.print_help()
+    #     exit(1)
 
     # send back the user input
     return args
 
 # primary function
 def svt_join(master, sum_quals, vcf_list):
+    max_split=9
+
     # if master not provided, set as first VCF
     if master is None:
-        master = open(vcf_list[0].name)
+        master_path = vcf_list[0].name
+        if master_path.endswith('.gz'):
+            master = gzip.open(master_path, 'rb')
+        else:
+            master = open(master_path, 'r')
+
+        # master = open(vcf_list[0].name, 'r')
     sample_list = []
 
     # print header
@@ -50,6 +62,7 @@ def svt_join(master, sum_quals, vcf_list):
         print (master_line.rstrip())
 
     # get sample names
+    out_v = master_line.rstrip().split('\t', max_split)[:9]
     for vcf in vcf_list:
         while 1:
             line = vcf.readline()
@@ -58,21 +71,17 @@ def svt_join(master, sum_quals, vcf_list):
             if line[:2] == "##":
                 continue
             if line[0] == "#":
-                line_v = line.rstrip().split('\t')
-                for sample in line_v[9:]:
-                    sample_list.append(sample)
+                line_v = line.rstrip().split('\t', max_split)
+                out_v = out_v + line_v[9:]
                 break
-    print '\t'.join(master_line.rstrip().split('\t')[:8] + ['FORMAT'] + sample_list)
+    sys.stdout.write( '\t'.join(map(str, out_v)) + '\n')
     
     # iterate through VCF body
     while 1:
         master_line = master.readline()
         if not master_line:
             break
-        master_v = master_line.rstrip().split('\t')
-        master_chrom = master_v[0]
-        master_pos = master_v[1]
-
+        master_v = master_line.rstrip().split('\t', max_split)
         out_v = master_v[:8] # output array of fields
         qual = float(out_v[5])
         format = None # column 9, VCF format field.
@@ -82,9 +91,7 @@ def svt_join(master, sum_quals, vcf_list):
             if not line:
                 sys.stderr.write('\nError: VCF files differ in length\n')
                 exit(1)
-            line_v = line.rstrip().split('\t')
-            line_chrom = line_v[0]
-            line_pos = line_v[1]
+            line_v = line.rstrip().split('\t', max_split)
 
             # set FORMAT field as format in first VCF.
             # cannot extract this from master, since it may have
@@ -92,19 +99,6 @@ def svt_join(master, sum_quals, vcf_list):
             if format is None:
                 format = line_v[8]
                 out_v.append(format)
-            
-            # ensure that each VCF position agrees with the master
-            if (master_chrom != line_chrom or
-                master_pos != line_pos):
-                sys.stderr.write('\nError: variant in %s (%s:%s) conflicts with master (%s:%s)\n' %
-                                 (vcf.name, line_chrom, line_pos, master_chrom, master_pos))
-                exit(1)
-
-            # ensure that the format for all VCFs agree with the first
-            if (format != line_v[8]):
-                sys.stderr.write('\nError: format in %s (%s) conflicts with first VCF (%s)\n' %
-                                 (vcf.name, line_v[8], format))
-                exit(1)
 
             qual += float(line_v[5])
             out_v = out_v + line_v[9:]
@@ -126,8 +120,19 @@ def main():
     # parse the command line args
     args = get_args()
 
+    # parse the vcf files to paste
+    vcf_list = []
+    for line in open(args.vcf_list, 'r'):
+        path = line.rstrip()
+        if path.endswith('.gz'):
+            vcf_list.append(gzip.open(path, 'rb'))
+        else:
+            vcf_list.append(open(path, 'r'))
+    
+    # vcf_list = [open(line.rstrip('\n'), 'r') for line in open(args.vcf_list, 'r')]
+
     # call primary function
-    svt_join(args.master, args.sum_quals, args.vcf_list)
+    svt_join(args.master, args.sum_quals, vcf_list)
 
 # initialize the script
 if __name__ == '__main__':
