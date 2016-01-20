@@ -170,7 +170,7 @@ class Variant(object):
         self.format_list = vcf.format_list
         self.active_formats = list()
         self.gts = dict()
-        
+
         # fill in empty sample genotypes
         if len(var_list) < 8:
             sys.stderr.write('\nError: VCF file must have at least 8 columns\n')
@@ -299,7 +299,7 @@ def bayes_gt(ref, alt, is_dup):
         p_alt = [0.01, 0.5, 0.9]
 
     total = ref + alt
-    
+
     lp_homref = log_choose(total, alt) + alt * math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
     lp_het = log_choose(total, alt) + alt * math.log(p_alt[1], 10) + ref * math.log(1 - p_alt[1], 10)
     lp_homalt = log_choose(total, alt) + alt * math.log(p_alt[2], 10) + ref * math.log(1 - p_alt[2], 10)
@@ -369,12 +369,15 @@ def count_pairedend(chrom,
     disc_counter = 0
     conc_scaled_counter = 0
     disc_scaled_counter = 0
-    
+
     fetch_flank = sample.get_fetch_flank(z)
 
     if o1 == '+' or svtype == 'INV':
         # survey for concordant read pairs
+        reads0 = []
         for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
+            if read.is_unmapped: continue
+            reads0.append(read)
             lib = sample.get_lib(read.opt('RG')) # get the read's library
             if (read.is_reverse
                 or not read.mate_is_reverse
@@ -412,7 +415,8 @@ def count_pairedend(chrom,
 
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
-            for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
+            readiter = reads0 or sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos)
+            for read in readiter:
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (read.is_reverse
                     or (legacy and read.is_secondary)
@@ -463,9 +467,12 @@ def count_pairedend(chrom,
                             disc_counter += 1
                             disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
+    reads1 = []
     if o1 == '-' or svtype == 'INV':
         # survey for concordant read pairs
         for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
+            if read.is_unmapped: continue
+            reads1.append(read)
             lib = sample.get_lib(read.opt('RG')) # get the read's library
             if (not read.is_reverse
                 or read.mate_is_reverse
@@ -502,7 +509,8 @@ def count_pairedend(chrom,
 
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
-            for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
+            readiter = reads1 or sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank))
+            for read in readiter:
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (not read.is_reverse
                     or (legacy and read.is_secondary)
@@ -565,23 +573,23 @@ def countRecords(myCounter):
 def median(myCounter):
     #length is the number of bases we're looking at
     numEntries = countRecords(myCounter)
-    
+
     # the ordinal value of the middle element
     # if 2 middle elements, then non-integer
     limit = 0.5 * numEntries
-    
+
     # a list of the values, sorted smallest to largest
     # note that this list contains unique elements only
     valueList = list(myCounter)
     valueList.sort()
-    
+
     # number of entries we've gone through
     runEntries = 0
     # index of the current value in valueList
     i = 0
     # initiate v, in case list only has one element
     v = valueList[i]
-    
+
     # move through the value list, iterating by number of
     # entries for each value
     while runEntries < limit:
@@ -616,7 +624,7 @@ def mean(myCounter):
     # the number of total entries in the set is the
     # sum of the occurrences for each value
     numRecords = countRecords(myCounter)
-    
+
     # u holds the mean
     u = float()
 
@@ -627,11 +635,11 @@ def stdev(myCounter):
     # the number of total entries in the set is the
     # sum of the occurrences for each value
     numRecords = countRecords(myCounter)
-    
+
     # u holds the mean
     u = mean(myCounter)
     sumVar = 0.0
-    
+
     # stdev is sqrt(sum((x-u)^2)/#elements)
     for c in myCounter:
         sumVar += myCounter[c] * (c - u)**2
@@ -687,7 +695,7 @@ class Library(object):
             if skip_counter < skip:
                 skip_counter += 1
                 continue
-            if (read.is_reverse 
+            if (read.is_reverse
                 or not read.mate_is_reverse
                 or read.is_unmapped
                 or read.mate_is_unmapped
@@ -744,7 +752,7 @@ class Sample(object):
                 self.lib_dict[lib_name] = new_lib
             self.rg_to_lib[r['ID']] = self.lib_dict[lib_name]
             self.lib_dict[lib_name].add_readgroup(r['ID'])
-            
+
         # execute calculations
         for name in self.lib_dict:
             self.lib_dict[name].calc_read_length()
@@ -754,7 +762,7 @@ class Sample(object):
     # get the maximum fetch flank for reading the BAM file
     def get_fetch_flank(self, z):
         return max([lib.mean + (lib.sd * z) for lib in self.lib_dict.values()])
-        
+
     # return the library object for a specified read group
     def get_lib(self, readgroup):
         return self.rg_to_lib[readgroup]
@@ -770,7 +778,7 @@ def sv_genotype(vcf_file,
                 disc_weight,
                 num_samp,
                 debug):
-    
+
     # parse the comma separated inputs
     bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
     if spl_bam_string is not None:
@@ -801,7 +809,7 @@ def sv_genotype(vcf_file,
     for line in vcf_file:
         if in_header:
             if line[0] == '#':
-                header.append(line) 
+                header.append(line)
                 if line[1] != '#':
                     vcf_samples = line.rstrip().split('\t')[9:]
                 continue
@@ -892,7 +900,7 @@ def sv_genotype(vcf_file,
             if spl_bam_string is not None:
                 for ref_read in sample.bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
                     if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                        for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
+                        for p in xrange(ref_read.pos + splflank, ref_read.aend + 1 - splflank):
                             if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                                 ref_counter_a[p] += 1
                                 ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
@@ -930,7 +938,7 @@ def sv_genotype(vcf_file,
             if spl_bam_string is not None:
                 for ref_read in sample.bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
                     if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                        for p in xrange(ref_read.pos + 1, ref_read.aend + 1):
+                        for p in xrange(ref_read.pos + splflank, ref_read.aend + 1 - splflank):
                             if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                                 ref_counter_b[p] += 1
                                 ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
@@ -944,7 +952,7 @@ def sv_genotype(vcf_file,
                             # if debug: print 'o2-', spl_read.pos + 1
                             spl_counter_b[spl_read.pos + 1] += 1
                             spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
-            
+
             # tally up the splitters
             sr_ref_a = int(round(sum(ref_counter_a[p] for p in xrange(posA - split_slop, posA + split_slop + 1)) / float(2 * split_slop + 1)))
             sr_spl_a = sum(spl_counter_a[p] for p in xrange(posA-split_slop, posA+split_slop + 1))
@@ -1045,7 +1053,7 @@ def sv_genotype(vcf_file,
                     gt_sum_log = math.log(gt_sum, 10)
                     sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
                     if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
-                        phred_gq = 200                    
+                        phred_gq = 200
                     else:
                         phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
                     var.genotype(sample.name).set_format('GQ', phred_gq)
@@ -1087,7 +1095,7 @@ def sv_genotype(vcf_file,
             var2.genotype = var.genotype
             vcf_out.write(var2.get_var_string() + '\n')
     vcf_out.close()
-    
+
     return
 
 # --------------------------------------
@@ -1121,4 +1129,4 @@ if __name__ == '__main__':
         sys.exit(main())
     except IOError, e:
         if e.errno != 32:  # ignore SIGPIPE
-            raise 
+            raise
