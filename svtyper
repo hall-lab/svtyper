@@ -372,6 +372,12 @@ def count_pairedend(chrom,
 
     fetch_flank = sample.get_fetch_flank(z)
 
+    # don't count paired-end reads if deletion is smaller than 2 * standard dev of library
+    if svtype == 'DEL':
+        for lib in sample.lib_dict.values():
+            if abs(mate_pos - pos) < 2 * lib.sd:
+                return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
+
     if o1 == '+' or svtype == 'INV':
         # survey for concordant read pairs
         reads0 = []
@@ -403,9 +409,6 @@ def count_pairedend(chrom,
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     # if a deletion, iterate the discordants for these too
                     if svtype == 'DEL' and ispan2 >= mate_ci[0]:
-                        # don't count paired-end reads if deletion is smaller than 2 * standard dev of library
-                        if abs(mate_pos - pos) < 2 * lib.sd:
-                            break
                         # disc_p = (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                         # if disc_p > 0.5:
                         #     print ispan2, mate_ci[0]
@@ -497,9 +500,6 @@ def count_pairedend(chrom,
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if svtype == 'DEL' and ispan2 <= mate_ci[1]:
-                        # don't count paired-end reads if deletion is smaller than 2 * standard dev of library
-                        if abs(mate_pos - pos) < 2 * lib.sd:
-                            break
                         # disc_p = (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                         # if disc_p > 0.5:
                         #     print ispan1, mate_ci[1]
