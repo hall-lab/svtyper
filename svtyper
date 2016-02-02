@@ -817,7 +817,7 @@ def sv_genotype(vcf_file,
                 in_header = False
                 vcf.add_header(header)
                 # if detailed:
-                vcf.add_format('GQ', 1, 'Float', 'Genotype quality')
+                vcf.add_format('GQ', 1, 'Integer', 'Genotype quality')
                 vcf.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
                 vcf.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
                 vcf.add_format('DP', 1, 'Integer', 'Read depth')
@@ -1056,7 +1056,7 @@ def sv_genotype(vcf_file,
                         phred_gq = 200
                     else:
                         phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
-                    var.genotype(sample.name).set_format('GQ', phred_gq)
+                    var.genotype(sample.name).set_format('GQ', int(phred_gq))
                     var.genotype(sample.name).set_format('SQ', sample_qual)
                     var.qual += sample_qual
                     if gt_idx == 1:
