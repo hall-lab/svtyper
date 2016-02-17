@@ -329,7 +329,11 @@ def get_mate_5prime(bam, read):
                 if k == 'M' or k == 'N' or k == 'D':
                     p += n
     except KeyError:
-        p = bam.mate(read).aend
+        try:
+            p = bam.mate(read).aend
+        except ValueError:
+            sys.stdout.write("Could not find mate of %s" % read.query_name)
+            p = None
     return p
 
 def get_mate_mapq(bam, read):
