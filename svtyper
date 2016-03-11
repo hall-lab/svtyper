@@ -666,11 +666,12 @@ class Library(object):
 
     # calculate the library's prevalence in the BAM file
     def calc_lib_prevalence(self):
+        max_count = 100000
         lib_counter = 0
         read_counter = 0
 
         for read in self.bam.fetch():
-            if read_counter == self.num_samp:
+            if read_counter == max_count:
                 break
             if read.opt('RG') in self.readgroups:
                 lib_counter += 1
