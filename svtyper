@@ -385,8 +385,7 @@ def count_pairedend(chrom,
             if read.is_unmapped: continue
             reads0.append(read)
             lib = sample.get_lib(read.opt('RG')) # get the read's library
-            if (lib not in sample.active_libs
-                or read.is_reverse
+            if (read.is_reverse
                 or not read.mate_is_reverse
                 or (legacy and read.is_secondary)
                 or (not legacy and read.flag & 2048 == 2048)
@@ -395,7 +394,9 @@ def count_pairedend(chrom,
                 or read.is_duplicate
                 or read.pos + discflank > pos
                 or read.pnext + lib.read_length - discflank < pos
-                or read.tid != read.rnext):
+                or read.tid != read.rnext
+                or lib not in sample.active_libs
+                ):
                 continue
             else:
                 mate_mapq = get_mate_mapq(sample.bam, read)
@@ -422,15 +423,16 @@ def count_pairedend(chrom,
             readiter = reads0 or sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos)
             for read in readiter:
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
-                if (lib not in sample.active_libs
-                    or read.is_reverse
+                if (read.is_reverse
                     or (legacy and read.is_secondary)
                     or (not legacy and read.flag & 2048 == 2048)
                     or read.is_unmapped
                     or read.mate_is_unmapped
                     or read.is_duplicate
                     or read.pos + discflank > pos
-                    or sample.bam.getrname(read.rnext) != mate_chrom):
+                    or sample.bam.getrname(read.rnext) != mate_chrom
+                    or lib not in sample.active_libs
+                    ):
                     continue
 
                 mate_mapq = get_mate_mapq(sample.bam, read) # move this for speed
@@ -488,7 +490,9 @@ def count_pairedend(chrom,
                 or read.is_duplicate
                 or read.aend - discflank < pos
                 or read.pnext + discflank > pos
-                or read.tid != read.rnext):
+                or read.tid != read.rnext
+                or lib not in sample.active_libs
+                ):
                 continue
             else:
                 mate_mapq = get_mate_mapq(sample.bam, read)
@@ -521,7 +525,9 @@ def count_pairedend(chrom,
                     or read.mate_is_unmapped
                     or read.is_duplicate
                     or read.aend - discflank < pos
-                    or sample.bam.getrname(read.rnext) != mate_chrom):
+                    or sample.bam.getrname(read.rnext) != mate_chrom
+                    or lib not in sample.active_libs
+                    ):
                     continue
 
                 mate_mapq = get_mate_mapq(sample.bam, read) # move this for speed
