@@ -385,7 +385,8 @@ def count_pairedend(chrom,
             if read.is_unmapped: continue
             reads0.append(read)
             lib = sample.get_lib(read.opt('RG')) # get the read's library
-            if (read.is_reverse
+            if (lib not in sample.active_libs
+                or read.is_reverse
                 or not read.mate_is_reverse
                 or (legacy and read.is_secondary)
                 or (not legacy and read.flag & 2048 == 2048)
@@ -421,7 +422,8 @@ def count_pairedend(chrom,
             readiter = reads0 or sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos)
             for read in readiter:
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
-                if (read.is_reverse
+                if (lib not in sample.active_libs
+                    or read.is_reverse
                     or (legacy and read.is_secondary)
                     or (not legacy and read.flag & 2048 == 2048)
                     or read.is_unmapped
@@ -752,6 +754,7 @@ class Sample(object):
         self.spl_bam = spl_bam
 
         self.lib_dict = dict()
+        self.active_libs = []
 
         # parse library design
         self.rg_to_lib = dict()
@@ -778,6 +781,7 @@ class Sample(object):
             self.lib_dict[name].calc_read_length()
             self.lib_dict[name].calc_insert_hist()
             self.lib_dict[name].calc_insert_density()
+            self.active_libs += [name]
 
     # get the maximum fetch flank for reading the BAM file
     def get_fetch_flank(self, z):
