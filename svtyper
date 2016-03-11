@@ -659,9 +659,24 @@ class Library(object):
         self.dens = dict()
         self.mean = float()
         self.sd = float()
+        self.prevalence = float()
 
     def add_readgroup(self, rg):
         self.readgroups.append(rg)
+
+    # calculate the library's prevalence in the BAM file
+    def calc_lib_prevalence(self):
+        lib_counter = 0
+        read_counter = 0
+
+        for read in self.bam.fetch():
+            if read_counter == self.num_samp:
+                break
+            if read.opt('RG') in self.readgroups:
+                lib_counter += 1
+            read_counter += 1
+
+        self.prevalence = float(lib_counter) / read_counter
 
     # get read length
     def calc_read_length(self):
@@ -730,11 +745,10 @@ class Library(object):
 
 # holds each sample's BAM and library information
 class Sample(object):
-    def __init__(self, bam, spl_bam, num_samp):
+    def __init__(self, bam, spl_bam, num_samp, min_lib_prevalence):
         self.name = bam.header['RG'][0]['SM']
         self.bam = bam
         self.spl_bam = spl_bam
-        num_samp
 
         self.lib_dict = dict()
 
@@ -754,7 +768,12 @@ class Sample(object):
             self.lib_dict[lib_name].add_readgroup(r['ID'])
 
         # execute calculations
-        for name in self.lib_dict:
+        for name in list(self.lib_dict):
+            self.lib_dict[name].calc_lib_prevalence()
+            # delete library if it constitutes less than min fraction of BAM file
+            if self.lib_dict[name].prevalence < min_lib_prevalence:
+                self.lib_dict.pop(name)
+                continue
             self.lib_dict[name].calc_read_length()
             self.lib_dict[name].calc_insert_hist()
             self.lib_dict[name].calc_insert_density()
@@ -789,12 +808,13 @@ def sv_genotype(vcf_file,
     else:
         sys.stderr.write('Warning: Splitters BAM file (-S) not found. Performance will suffer.\n')
 
+    min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
     sample_list = list()
     for i in xrange(len(bam_list)):
         if spl_bam_string is None:
-            sample = Sample(bam_list[i], None, num_samp)
+            sample = Sample(bam_list[i], None, num_samp, min_lib_prevalence)
         else:
-            sample = Sample(bam_list[i], spl_bam_list[i], num_samp)
+            sample = Sample(bam_list[i], spl_bam_list[i], num_samp, min_lib_prevalence)
         sample_list.append(sample)
 
     z = 3
