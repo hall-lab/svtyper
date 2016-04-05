@@ -1,8 +1,6 @@
-[![Build Status](https://travis-ci.org/hall-lab/svtyper.svg?branch=master)](https://travis-ci.org/hall-lab/svtyper)
-
 svtyper
 =======
-
+[![Build Status](https://travis-ci.org/hall-lab/svtyper.svg?branch=master)](https://travis-ci.org/hall-lab/svtyper)
 Bayesian genotyper for structural variants
 
 ### Example workflow
