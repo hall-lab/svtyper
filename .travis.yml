@@ -23,3 +23,9 @@ install:
   - source activate test-environment
 
 # command to run tests
+script: 
+# FIXME If these were modules, this shouldn't be necessary
+    nosetests --all-modules --traverse-namespace --with-coverage --cover-inclusive --with-id -v
+after_success:
+    - pip install coveralls
+    - coveralls
