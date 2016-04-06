@@ -1,6 +1,6 @@
 svtyper
 =======
-[![License](https://img.shields.io/github/license/hall-lab/svtyper.svg)](LICENSE.txt)
+[![License](https://img.shields.io/github/license/hall-lab/svtyper.svg)](LICENSE)
 [![Build Status](https://travis-ci.org/hall-lab/svtyper.svg?branch=master)](https://travis-ci.org/hall-lab/svtyper)
 
 Bayesian genotyper for structural variants
