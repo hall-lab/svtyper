@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import pysam
+import json
 import argparse, sys
 import math, time, re
 from collections import Counter
@@ -29,7 +30,9 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('-M', action='store_true', dest='legacy', required=False, help='split reads are flagged as secondary, not supplementary. For compatibility with legacy BWA-MEM "-M" flag')
+    parser.add_argument('-l', '--lib_info', dest='lib_info_file', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
+    parser.add_argument('--dump', type=str, required=False, default=None, help='file prefix to dump library info and relevant BAM reads')
 
     # parse the arguments
     args = parser.parse_args()
@@ -276,6 +279,19 @@ class Genotype(object):
                 g_list.append('.')
         return ':'.join(map(str,g_list))
 
+# write read to BAM file, checking whether read is already written
+def write_read(read, bam, written_reads):
+    if bam is None:
+        return
+    if (read) in written_reads:
+        return
+    else:
+        read.seq = "*"
+        read.qual = "*"
+        bam.write(read)
+        written_reads.add(read)
+        return
+
 # efficient combinatorial function to handle extremely large numbers
 def log_choose(n, k):
     r = 0.0
@@ -364,7 +380,10 @@ def count_pairedend(chrom,
                     svtype,
                     sample,
                     z,
-                    discflank):
+                    discflank,
+                    out_bam,
+                    out_bam_written_reads):
+
     conc_counter = 0
     disc_counter = 0
     conc_scaled_counter = 0
@@ -418,10 +437,15 @@ def count_pairedend(chrom,
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
+                        # write to BAM output
+                        write_read(read, out_bam, out_bam_written_reads)
+
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
             readiter = reads0 or sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos)
             for read in readiter:
+                # write to BAM output
+                write_read(read, out_bam, out_bam_written_reads)
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (read.is_reverse
                     or (legacy and read.is_secondary)
@@ -513,10 +537,15 @@ def count_pairedend(chrom,
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
+                        # write to BAM output
+                        write_read(read, out_bam, out_bam_written_reads)
+
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
             readiter = reads1 or sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank))
             for read in readiter:
+                # write to BAM output
+                write_read(read, out_bam, out_bam_written_reads)
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (not read.is_reverse
                     or (legacy and read.is_secondary)
@@ -657,20 +686,90 @@ def stdev(myCounter):
 
 # holds a library's insert size and read length information
 class Library(object):
-    def __init__(self, bam, name, num_samp):
-        self.bam = bam
-        self.name = name
-        self.num_samp = num_samp
-        self.readgroups = list()
-        self.read_length = int()
-        self.hist = dict()
-        self.dens = dict()
-        self.mean = float()
-        self.sd = float()
-        self.prevalence = float()
+    def __init__(self,
+                 name,
+                 bam,
+                 readgroups,
+                 read_length,
+                 hist,
+                 dens,
+                 mean,
+                 sd,
+                 prevalence,
+                 num_samp):
 
-    def add_readgroup(self, rg):
-        self.readgroups.append(rg)
+        # parse arguments
+        self.name = name
+        self.bam = bam
+        self.num_samp = num_samp
+        self.readgroups = readgroups
+        self.read_length = read_length
+        self.hist = hist
+        self.dens = dens
+        self.mean = mean
+        self.sd = sd
+        self.prevalence = prevalence
+
+        # if information is missing, compute it
+        if self.read_length is None:
+            self.calc_read_length()
+        if self.hist is None:
+            self.calc_insert_hist()
+        if self.dens is None:
+            self.calc_insert_density()
+        if self.prevalence is None:
+            self.calc_lib_prevalence()
+
+    @classmethod
+    def from_lib_info(cls,
+                      sample_name,
+                      lib_index,
+                      bam,
+                      lib_info):
+
+        lib = lib_info[sample_name]['libraryArray'][lib_index]
+
+        # convert the histogram keys to integers (from strings in JSON)
+        lib_hist = {int(k):int(v) for k,v in lib['histogram'].items()}
+
+        return cls(lib['library_name'],
+                   bam,
+                   lib['readgroups'],
+                   int(lib['read_length']),
+                   lib_hist,
+                   None,
+                   float(lib['mean']),
+                   float(lib['sd']),
+                   float(lib['prevalence']),
+                   0)
+
+    @classmethod
+    def from_bam(cls,
+                 lib_name,
+                 bam,
+                 num_samp):
+
+        # get readgroups that comprise the library
+        readgroups = []
+        for r in bam.header['RG']:
+            try:
+                in_lib = r['LB'] == lib_name
+            except KeyError, e:
+                in_lib = lib_name == ''
+
+            if in_lib:
+                readgroups.append(r['ID'])
+
+        return cls(lib_name,
+                   bam,
+                   readgroups,
+                   None,
+                   None,
+                   None,
+                   None,
+                   None,
+                   None,
+                   num_samp)
 
     # calculate the library's prevalence in the BAM file
     def calc_lib_prevalence(self):
@@ -695,15 +794,14 @@ class Library(object):
         for read in self.bam.fetch():
             if read.opt('RG') not in self.readgroups:
                 continue
-            if read.qlen > max_rl:
-                max_rl = read.qlen
+            if read.inferred_length > max_rl:
+                max_rl = read.inferred_length
             if counter == num_samp:
                 break
             counter += 1
         self.read_length = max_rl
 
     # generate empirical histogram of the sample's insert size distribution
-    # CC NOTE: REMOVE BEYOND Z stdev!!!!
     def calc_insert_hist(self):
         counter = 0
         skip = 0
@@ -754,40 +852,98 @@ class Library(object):
 
 # holds each sample's BAM and library information
 class Sample(object):
-    def __init__(self, bam, spl_bam, num_samp, min_lib_prevalence):
-        self.name = bam.header['RG'][0]['SM']
+    # constructor for empirical distributions
+    def __init__(self,
+                 name,
+                 bam,
+                 spl_bam,
+                 num_samp,
+                 lib_dict,
+                 rg_to_lib,
+                 min_lib_prevalence):
+                 # lib_info_file = None):
+
+        self.name = name
         self.bam = bam
         self.spl_bam = spl_bam
 
-        self.lib_dict = dict()
-        self.active_libs = []
+        self.lib_dict = lib_dict
+        self.rg_to_lib = rg_to_lib
 
-        # parse library design
-        self.rg_to_lib = dict()
-        for r in self.bam.header['RG']:
+        # get active libraries
+        self.active_libs = []
+        for lib in lib_dict.values():
+            if lib.prevalence >= min_lib_prevalence:
+                self.active_libs.append(lib)
+
+    @classmethod
+    def from_lib_info(cls,
+                      bam,
+                      spl_bam,
+                      lib_info,
+                      min_lib_prevalence):
+
+        name = bam.header['RG'][0]['SM']
+        num_samp = 0
+        rg_to_lib = {}
+        lib_dict = {}
+
+        for i in xrange(len(lib_info[name]['libraryArray'])):
+            lib = lib_info[name]['libraryArray'][i]
+            lib_name = lib['library_name']
+
+            # make library object
+            lib_dict[lib_name] = Library.from_lib_info(name,
+                                                       i,
+                                                       bam,
+                                                       lib_info)
+
+            # make a map from readgroup IDs to library objects
+            for rg in lib['readgroups']:
+                rg_to_lib[rg] = lib_dict[lib_name]
+
+        return cls(name,
+                   bam,
+                   spl_bam,
+                   num_samp,
+                   lib_dict,
+                   rg_to_lib,
+                   min_lib_prevalence)
+
+    @classmethod
+    def from_bam(cls,
+                 bam,
+                 spl_bam,
+                 num_samp,
+                 min_lib_prevalence):
+
+        name = bam.header['RG'][0]['SM']
+        rg_to_lib = {}
+        lib_dict = {}
+
+        # self.lib_dict = dict()
+        # self.active_libs = []
+        # self.rg_to_lib = dict()
+
+        for r in bam.header['RG']:
             try:
                 lib_name=r['LB']
             except KeyError, e:
                 lib_name=''
 
             # add the new library
-            if lib_name not in self.lib_dict:
-                new_lib = Library(self.bam, lib_name, num_samp)
-                self.lib_dict[lib_name] = new_lib
-            self.rg_to_lib[r['ID']] = self.lib_dict[lib_name]
-            self.lib_dict[lib_name].add_readgroup(r['ID'])
+            if lib_name not in lib_dict:
+                new_lib = Library.from_bam(lib_name, bam, num_samp)
+                lib_dict[lib_name] = new_lib
+            rg_to_lib[r['ID']] = lib_dict[lib_name]
 
-        # execute calculations
-        for name in list(self.lib_dict):
-            self.lib_dict[name].calc_lib_prevalence()
-            # delete library if it constitutes less than min fraction of BAM file
-            if self.lib_dict[name].prevalence < min_lib_prevalence:
-                self.lib_dict.pop(name)
-                continue
-            self.lib_dict[name].calc_read_length()
-            self.lib_dict[name].calc_insert_hist()
-            self.lib_dict[name].calc_insert_density()
-            self.active_libs += [self.lib_dict[name]]
+        return cls(name,
+                   bam,
+                   spl_bam,
+                   num_samp,
+                   lib_dict,
+                   rg_to_lib,
+                   min_lib_prevalence)
 
     # get the maximum fetch flank for reading the BAM file
     def get_fetch_flank(self, z):
@@ -796,6 +952,36 @@ class Sample(object):
     # return the library object for a specified read group
     def get_lib(self, readgroup):
         return self.rg_to_lib[readgroup]
+
+# dump the sample and library info to a file
+def write_sample_json(sample_list, lib_info_dump):
+    lib_info = {}
+    for sample in sample_list:
+        s = {}
+        s['sample_name'] = sample.name
+        s['bam'] = sample.bam.filename
+        s['split_bam'] = sample.spl_bam.filename
+        s['libraryArray'] = []
+        s['mapped'] = sample.bam.mapped
+        s['unmapped'] = sample.bam.unmapped
+
+        for lib in sample.lib_dict.values():
+            l = {}
+            l['library_name'] = lib.name
+            l['readgroups'] = lib.readgroups
+            l['read_length'] = lib.read_length
+            l['mean'] = lib.mean
+            l['sd'] = lib.sd
+            l['prevalence'] = lib.prevalence
+            l['histogram'] = lib.hist
+
+            s['libraryArray'].append(l)
+
+        lib_info[sample.name] = s
+
+    # print the json file
+    json.dump(lib_info, lib_info_dump, indent=4)
+    lib_info_dump.close()
 
 # primary function
 def sv_genotype(vcf_file,
@@ -807,6 +993,7 @@ def sv_genotype(vcf_file,
                 split_weight,
                 disc_weight,
                 num_samp,
+                lib_info_file,
                 debug):
 
     # parse the comma separated inputs
@@ -818,15 +1005,26 @@ def sv_genotype(vcf_file,
             exit(1)
     else:
         sys.stderr.write('Warning: Splitters BAM file (-S) not found. Performance will suffer.\n')
+        spl_bam_list = [None * len(bam_list)]
 
     min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
+
+    # parse lib_info_file JSON
+    if lib_info_file is not None:
+        lib_info = json.load(lib_info_file)
+
     sample_list = list()
     for i in xrange(len(bam_list)):
-        if spl_bam_string is None:
-            sample = Sample(bam_list[i], None, num_samp, min_lib_prevalence)
+        if lib_info_file is None:
+            sample = Sample.from_bam(bam_list[i], spl_bam_list[i], num_samp, min_lib_prevalence)
         else:
-            sample = Sample(bam_list[i], spl_bam_list[i], num_samp, min_lib_prevalence)
+            sample = Sample.from_lib_info(bam_list[i], spl_bam_list[i], lib_info, min_lib_prevalence)
+
         sample_list.append(sample)
+    
+    # write the JSON for the library
+    if lib_info_dump is not None:
+        write_sample_json(sample_list, lib_info_dump)
 
     z = 3
     padding = 30 # this is the left/right distance for fetching splitters
@@ -931,6 +1129,8 @@ def sv_genotype(vcf_file,
             if spl_bam_string is not None:
                 for ref_read in sample.bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
                     if not ref_read.is_duplicate and not ref_read.is_unmapped:
+                        # write to BAM output
+                        write_read(ref_read, out_bam, out_bam_written_reads)
                         for p in xrange(ref_read.pos + splflank, ref_read.aend + 1 - splflank):
                             if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                                 ref_counter_a[p] += 1
@@ -939,6 +1139,9 @@ def sv_genotype(vcf_file,
 
                 for spl_read in sample.spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
                     if not spl_read.is_duplicate and not spl_read.is_unmapped:
+                        # write to BAM output
+                        write_read(spl_read, out_splitters_bam, out_splitters_bam_written_reads)
+                        write_read(spl_read, out_bam, out_bam_written_reads)
                         if o1 == '+' and spl_read.cigar[0][0] == 0:
                             # if debug: print 'o1+', spl_read.aend
                             spl_counter_a[spl_read.aend] += 1
@@ -957,7 +1160,9 @@ def sv_genotype(vcf_file,
                                                       o1, o2,
                                                       var.info['SVTYPE'],
                                                       sample,
-                                                      z, discflank)
+                                                      z, discflank,
+                                                      out_bam,
+                                                      out_bam_written_reads)
             '''
             Breakend B
             '''
@@ -969,12 +1174,17 @@ def sv_genotype(vcf_file,
             if spl_bam_string is not None:
                 for ref_read in sample.bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
                     if not ref_read.is_duplicate and not ref_read.is_unmapped:
+                        # write to BAM output
+                        write_read(ref_read, out_bam, out_bam_written_reads)
                         for p in xrange(ref_read.pos + splflank, ref_read.aend + 1 - splflank):
                             if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                                 ref_counter_b[p] += 1
                                 ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
                 for spl_read in sample.spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
                     if not spl_read.is_duplicate and not spl_read.is_unmapped:
+                        # write to BAM output
+                        write_read(spl_read, out_splitters_bam, out_splitters_bam_written_reads)
+                        write_read(spl_read, out_bam, out_bam_written_reads)
                         if o2 == '+' and spl_read.cigar[0][0] == 0:
                             spl_counter_b[spl_read.aend] += 1
                             # if debug: print 'o2+', spl_read.aend
@@ -1004,7 +1214,9 @@ def sv_genotype(vcf_file,
                                                       o2, o1,
                                                       var.info['SVTYPE'],
                                                       sample,
-                                                      z, discflank)
+                                                      z, discflank,
+                                                      out_bam,
+                                                      out_bam_written_reads)
             if debug:
                 print '--------------------'
                 print sample.name
@@ -1139,6 +1351,26 @@ def main():
     global legacy
     legacy = args.legacy
 
+    # globally track the reads written to the BAM files
+    global out_bam
+    global out_splitters_bam
+    global lib_info_dump
+    if args.dump:
+        template_bam = pysam.Samfile(args.split_bam.split(',')[0], 'rb')
+        out_bam = pysam.Samfile(args.dump + '.bam', 'wb', template_bam)
+        out_splitters_bam = pysam.Samfile(args.dump + '.splitters.bam', 'wb', template_bam)
+        template_bam.close()
+        lib_info_dump = open(args.dump + '.lib_info.txt', 'w')
+    else:
+        out_bam = None
+        out_splitters_bam = None
+        lib_info_dump = None
+
+    global out_bam_written_reads
+    out_bam_written_reads = set()
+    global out_splitters_bam_written_reads
+    out_splitters_bam_written_reads = set()
+
     # call primary function
     sv_genotype(args.input_vcf,
                 args.bam,
@@ -1149,10 +1381,16 @@ def main():
                 args.split_weight,
                 args.disc_weight,
                 args.num_samp,
+                args.lib_info_file,
                 args.debug)
 
     # close the files
     args.input_vcf.close()
+    if args.dump is not None:
+        out_bam.close()
+        out_splitters_bam.close()
+    if args.lib_info_file is not None:
+        args.lib_info_file.close()
 
 # initialize the script
 if __name__ == '__main__':
