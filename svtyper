@@ -284,9 +284,8 @@ def write_read(read, bam, written_reads):
     read.seq = "*"
     read.qual = "*"
 
-    # read_hash = hash(read.__str__())
-    # read_hash = read.__str__()
-    read_hash = read
+    read_hash = read.__str__()
+    # read_hash = read.tostring()
 
     if bam is None:
         return written_reads
@@ -1372,7 +1371,7 @@ def main():
         out_bam = pysam.Samfile(args.dump + '.bam', 'wb', template_bam)
         out_splitters_bam = pysam.Samfile(args.dump + '.splitters.bam', 'wb', template_bam)
         template_bam.close()
-        lib_info_dump = open(args.dump + '.lib_info.txt', 'w')
+        lib_info_dump = open(args.dump + '.lib_info.json', 'w')
     else:
         out_bam = None
         out_splitters_bam = None

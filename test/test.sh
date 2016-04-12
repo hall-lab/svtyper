@@ -19,6 +19,6 @@
     -i truth.vcf \
     -B NA12893.target_loci.sorted.bam \
     -S NA12893.target_loci.splitters.sorted.bam \
-    -l NA12893.target_loci.lib_info.txt \
+    -l NA12893.target_loci.lib_info.json \
     > test.gt.vcf
 diff truth.gt.vcf test.gt.vcf
