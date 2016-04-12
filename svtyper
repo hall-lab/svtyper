@@ -281,16 +281,25 @@ class Genotype(object):
 
 # write read to BAM file, checking whether read is already written
 def write_read(read, bam, written_reads):
+    read.seq = "*"
+    read.qual = "*"
+
+    # read_hash = hash(read.__str__())
+    # read_hash = read.qname + ',' + str(read.flag)
+    read_hash = read.__str__()
+
     if bam is None:
-        return
-    if (read) in written_reads:
-        return
+        return written_reads
+    if read_hash in written_reads:
+        return written_reads
     else:
-        read.seq = "*"
-        read.qual = "*"
+        # print read.qname, read.flag
+        # print read_hash
+        # print written_reads
+        
         bam.write(read)
-        written_reads.add(read)
-        return
+        written_reads.add(read_hash)
+        return written_reads
 
 # efficient combinatorial function to handle extremely large numbers
 def log_choose(n, k):
@@ -381,8 +390,11 @@ def count_pairedend(chrom,
                     sample,
                     z,
                     discflank,
-                    out_bam,
-                    out_bam_written_reads):
+                    out_bam):
+
+    # grant ability to modify global variables
+    global out_bam_written_reads
+    global out_splitters_bam_written_reads
 
     conc_counter = 0
     disc_counter = 0
@@ -426,6 +438,9 @@ def count_pairedend(chrom,
                 prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
 
                 if ispan2 > pos and prob_conc is not None: # bail if neither concordant or discordant
+                    # write to BAM output
+                    out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
+
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     # if a deletion, iterate the discordants for these too
@@ -437,15 +452,12 @@ def count_pairedend(chrom,
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
-                        # write to BAM output
-                        write_read(read, out_bam, out_bam_written_reads)
-
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
             readiter = reads0 or sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos)
             for read in readiter:
                 # write to BAM output
-                write_read(read, out_bam, out_bam_written_reads)
+                out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (read.is_reverse
                     or (legacy and read.is_secondary)
@@ -527,6 +539,9 @@ def count_pairedend(chrom,
                 prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
 
                 if ispan2 < pos and prob_conc is not None: # bail if neither concordant or discordant
+                    # write to BAM output
+                    out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
+
                     conc_counter += 1
                     conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
                     if svtype == 'DEL' and ispan2 <= mate_ci[1]:
@@ -537,15 +552,12 @@ def count_pairedend(chrom,
                         disc_counter += 1
                         disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
 
-                        # write to BAM output
-                        write_read(read, out_bam, out_bam_written_reads)
-
         # now look at discordants for corresponding SV types
         if svtype != 'DEL':
             readiter = reads1 or sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank))
             for read in readiter:
                 # write to BAM output
-                write_read(read, out_bam, out_bam_written_reads)
+                out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
                 lib = sample.get_lib(read.opt('RG')) # get the read's library
                 if (not read.is_reverse
                     or (legacy and read.is_secondary)
@@ -996,6 +1008,10 @@ def sv_genotype(vcf_file,
                 lib_info_file,
                 debug):
 
+    # grant ability to modify global variables
+    global out_bam_written_reads
+    global out_splitters_bam_written_reads
+
     # parse the comma separated inputs
     bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
     if spl_bam_string is not None:
@@ -1130,7 +1146,7 @@ def sv_genotype(vcf_file,
                 for ref_read in sample.bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
                     if not ref_read.is_duplicate and not ref_read.is_unmapped:
                         # write to BAM output
-                        write_read(ref_read, out_bam, out_bam_written_reads)
+                        out_bam_written_reads = write_read(ref_read, out_bam, out_bam_written_reads)
                         for p in xrange(ref_read.pos + splflank, ref_read.aend + 1 - splflank):
                             if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                                 ref_counter_a[p] += 1
@@ -1140,8 +1156,7 @@ def sv_genotype(vcf_file,
                 for spl_read in sample.spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
                     if not spl_read.is_duplicate and not spl_read.is_unmapped:
                         # write to BAM output
-                        write_read(spl_read, out_splitters_bam, out_splitters_bam_written_reads)
-                        write_read(spl_read, out_bam, out_bam_written_reads)
+                        out_splitters_bam_written_reads = write_read(spl_read, out_splitters_bam, out_splitters_bam_written_reads)
                         if o1 == '+' and spl_read.cigar[0][0] == 0:
                             # if debug: print 'o1+', spl_read.aend
                             spl_counter_a[spl_read.aend] += 1
@@ -1161,8 +1176,7 @@ def sv_genotype(vcf_file,
                                                       var.info['SVTYPE'],
                                                       sample,
                                                       z, discflank,
-                                                      out_bam,
-                                                      out_bam_written_reads)
+                                                      out_bam)
             '''
             Breakend B
             '''
@@ -1175,7 +1189,7 @@ def sv_genotype(vcf_file,
                 for ref_read in sample.bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
                     if not ref_read.is_duplicate and not ref_read.is_unmapped:
                         # write to BAM output
-                        write_read(ref_read, out_bam, out_bam_written_reads)
+                        out_bam_written_reads = write_read(ref_read, out_bam, out_bam_written_reads)
                         for p in xrange(ref_read.pos + splflank, ref_read.aend + 1 - splflank):
                             if p - ref_read.pos >= splflank and ref_read.aend - p >= splflank:
                                 ref_counter_b[p] += 1
@@ -1184,7 +1198,6 @@ def sv_genotype(vcf_file,
                     if not spl_read.is_duplicate and not spl_read.is_unmapped:
                         # write to BAM output
                         write_read(spl_read, out_splitters_bam, out_splitters_bam_written_reads)
-                        write_read(spl_read, out_bam, out_bam_written_reads)
                         if o2 == '+' and spl_read.cigar[0][0] == 0:
                             spl_counter_b[spl_read.aend] += 1
                             # if debug: print 'o2+', spl_read.aend
@@ -1215,8 +1228,7 @@ def sv_genotype(vcf_file,
                                                       var.info['SVTYPE'],
                                                       sample,
                                                       z, discflank,
-                                                      out_bam,
-                                                      out_bam_written_reads)
+                                                      out_bam)
             if debug:
                 print '--------------------'
                 print sample.name
