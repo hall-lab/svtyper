@@ -285,8 +285,8 @@ def write_read(read, bam, written_reads):
     read.qual = "*"
 
     # read_hash = hash(read.__str__())
-    # read_hash = read.qname + ',' + str(read.flag)
-    read_hash = read.__str__()
+    # read_hash = read.__str__()
+    read_hash = read
 
     if bam is None:
         return written_reads
