@@ -284,8 +284,9 @@ def write_read(read, bam, written_reads):
     read.seq = "*"
     read.qual = "*"
 
-    read_hash = read.__str__()
+    # read_hash = read.__str__()
     # read_hash = read.tostring()
+    read_hash = (read.qname, read.flag, read.cigarstring)
 
     if bam is None:
         return written_reads
