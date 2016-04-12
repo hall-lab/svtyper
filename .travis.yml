@@ -2,7 +2,7 @@ language: python
 python:
     - "2.7"
 script:
-    - cd test && test.sh
+    - cd test && ./test.sh
 
 # # command to install dependencies
 # install:
