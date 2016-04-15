@@ -1139,7 +1139,7 @@ def sv_genotype(vcf_file,
                                         o1, o2,
                                         split_slop,
                                         min_aligned)):
-                            alt_seq += max(prob_mapq(read_thing[0]), prob_mapq(read_thing[1]))
+                            alt_seq += prob_mapq(read_thing[0]) * prob_mapq(read_thing[1])
 
                     else:
                         read = read_thing[0]        
