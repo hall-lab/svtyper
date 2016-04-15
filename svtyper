@@ -710,9 +710,19 @@ def write_sample_json(sample_list, lib_info_dump):
     json.dump(lib_info, lib_info_dump, indent=4)
     lib_info_dump.close()
 
-def non_overlap(startA, endA, strand_A, startB, endB, strandB):
-    # to do
-    return
+def min_non_overlap(splitA, splitB):
+    if splitA.reference_id != splitB.reference_id:
+        return 1000000000
+
+    else:
+        # this is how we've computed non-overlap in the past, but
+        # it assumes that splitters are clipped on the right
+        # and left side respectively. So it won't work for '--' inversions, for example
+        overlap = min(splitA.reference_end, splitB.reference_end) - max(splitA.reference_start, splitB.reference_start)
+        nonOverlapA = splitA.reference_end - splitA.reference_start - overlap
+        nonOverlapB = splitB.reference_end - splitB.reference_start - overlap
+
+        return min(nonOverlapA, nonOverlapB)
 
 def read_overlaps(read, chrom, pos, min_aligned):
     if read.reference_name != chrom:
@@ -765,6 +775,53 @@ def is_split(readA, readB,
 
     # else:
     #     return False
+
+# def is_split(readA, readB,
+#              chromA, posA,
+#              chromB, posB,
+#              o1, o2,
+#              split_slop,
+#              min_aligned,
+#              min_non_overlap = 20):
+
+#     # check chrom and strands
+#     if (readA.is_reverse and o1
+#         or readB.is_reverse and o2
+#         or readA.reference_name != chromA
+#         or readB.reference_name != chromB):
+#         return False
+
+#     # infer query alignment length from CIGAR
+#     readA_alignment_length = sum([x[1] for x in readA.cigartuples if (x[0] == 0 or x[0] == 7)])
+#     readB_alignment_length = sum([x[1] for x in readB.cigartuples if (x[0] == 0 or x[0] == 7)])
+#     if readA_alignment_length < min_aligned or readB_alignment_length < min_aligned:
+#         return False
+
+#     # check orientations and positions
+#     if o1 and readA.reference_end > posA + split_slop:
+#         return False
+#     elif not o1 and readA.reference_start < posA - split_slop:
+#         return False
+#     elif o2 and readB.reference_end > posB + split_slop:
+#         return False
+#     elif not o2 and readB.reference_start < posB - split_slop:
+#         return False
+
+#     else:
+#         return True
+
+#     # # check orientations and positions
+#     # if o1 and readA.reference_end <= posA + split_slop:
+#     #     return True
+#     # elif not o1 and readA.reference_start >= posA - split_slop:
+#     #     return True
+#     # elif o2 and readB.reference_end <= posB + split_slop:
+#     #     return True
+#     # elif not o2 and readB.reference_start >= posB - split_slop:
+#     #     return True
+
+#     # else:
+#     #     return False
 
 # read is neither secondary nor supplementary
 def is_primary(read):
@@ -1069,6 +1126,33 @@ def sv_genotype(bam_string,
 
         # print chromA, posA, chromB, posB, svtype
 
+        def clipped_strand(read):
+            # clipped on right side
+            if read.cigartuples[0][0] in (0, 7) and read.cigartuples[-1][0] in (4, 5):
+                return True
+            elif read.cigartuples[-1][0] in (0, 7) and read.cigartuples[0][0] in (4, 5):
+                return False
+            else:
+                return None
+
+
+        def get_left_clip(read):
+            clip = 0
+            for x in read.cigartuples:
+                if x[0] == 4:
+                    clip += x[1]
+                else:
+                    break
+            return clip
+
+        def get_right_clip(read):
+            clip = 0
+            for x in reversed(read.cigartuples):
+                if x[0] == 4:
+                    clip += x[1]
+                else:
+                    break
+            return clip
 
         for sample in sample_list:
             read_batch = {}
@@ -1083,33 +1167,48 @@ def sv_genotype(bam_string,
 
 
                 # 1. Assess splitters
-                for read_thing in fragment.group_reads().values():
-                    if len(read_thing) == 2:
-                        if (is_split(read_thing[0], read_thing[1],
-                                    chromA, posA,
-                                    chromB, posB,
-                                    o1, o2,
-                                    split_slop,
-                                    min_aligned)
-                            or is_split(read_thing[1], read_thing[0],
-                                        chromA, posA,
-                                        chromB, posB,
-                                        o1, o2,
-                                        split_slop,
-                                        min_aligned)):
-                            alt_seq += prob_mapq(read_thing[0]) * prob_mapq(read_thing[1])
+                for read in fragment.primary_reads + fragment.auxil_reads:
+                    # # print read.query_alignment_start, read.query_alignment_end
+                    # print 
+                    # print 'my', get_left_clip(read), get_right_clip(read)
+                    # query_alignment_length = fragment.lib.read_length - get_left_clip(read) - get_right_clip(read)
+                    # print query_alignment_length
+                    # print read.cigartuples
 
-                    else:
-                        read = read_thing[0]
+                    left_clip = get_left_clip(read)
+                    right_clip = get_right_clip(read)
+                    query_alignment_length = fragment.lib.read_length - left_clip - right_clip
+                    
+                    is_split = False
 
-                        # get ref overlaps
-                        ref_overlap_A = read_overlaps(read, chromA, posA, min_aligned) # min_aligned + split_slop?
-                        ref_overlap_B = read_overlaps(read, chromB, posB, min_aligned)
-                        if ref_overlap_A or ref_overlap_B:
-                            ref_seq += prob_mapq(read)
+                    if query_alignment_length < min_aligned:
+                        continue
+
+                    if right_clip > min_aligned:
+                        if ((o1
+                             and read.reference_end >= posA - split_slop
+                             and read.reference_end <= posA + split_slop)
+                            or
+                            (o2
+                             and read.reference_end >= posB - split_slop
+                             and read.reference_end <= posB + split_slop)):
+                            is_split = True
+                            
+                    elif left_clip > min_aligned:
+                        if ((not o1
+                             and read.reference_start >= posA - split_slop
+                             and read.reference_start <= posA + split_slop)
+                            or
+                            (not o2
+                             and read.reference_start >= posB - split_slop
+                             and read.reference_start <= posB + split_slop)):
+                            is_split = True
 
 
-
+                    if is_split:
+                        p_alt = prob_mapq(read)
+                        alt_seq += p_alt
+                    
                 # tally spanning alternate pairs
                 alt_straddle = fragment.is_pair_straddle(chromA, posA, ref_ci,
                                                          chromB, posB, ref_ci,
