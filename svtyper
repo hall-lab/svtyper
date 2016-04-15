@@ -1134,12 +1134,18 @@ def sv_genotype(vcf_file,
                 # tally reference sequences
                 for read_thing in fragment.group_reads().values():
                     if len(read_thing) == 2:
-                        if is_split(read_thing[0], read_thing[1],
+                        if (is_split(read_thing[0], read_thing[1],
                                     chromA, posA,
                                     chromB, posB,
                                     o1, o2,
                                     split_slop,
-                                    min_aligned):
+                                    min_aligned)
+                            or is_split(read_thing[1], read_thing[0],
+                                        chromA, posA,
+                                        chromB, posB,
+                                        o1, o2,
+                                        split_slop,
+                                        min_aligned)):
                             alt_seq += max(prob_mapq(read_thing[0]), prob_mapq(read_thing[1]))
 
                         # do I have to flip the reads and do it again?
@@ -1153,6 +1159,7 @@ def sv_genotype(vcf_file,
                             ref_seq += prob_mapq(read)
 
             if debug:
+                print '--------------------------'
                 print 'ref_span:', ref_span
                 print 'alt_span:', alt_span
                 print 'ref_seq:', ref_seq
