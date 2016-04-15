@@ -27,7 +27,6 @@ author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
-    parser.add_argument('-S', '--split_bam', type=str, required=False, help='split-read bam file for sample, comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     # parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
@@ -36,7 +35,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
-    parser.add_argument('-M', action='store_true', dest='legacy', required=False, help='split reads are flagged as secondary, not supplementary. For compatibility with legacy BWA-MEM "-M" flag')
+    # parser.add_argument('-M', action='store_true', dest='legacy', required=False, help='split reads are flagged as secondary, not supplementary. For compatibility with legacy BWA-MEM "-M" flag')
     parser.add_argument('-l', '--lib_info', dest='lib_info_file', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
     parser.add_argument('--dump', type=str, required=False, default=None, help='file prefix to dump library info and relevant BAM reads')
@@ -587,21 +586,17 @@ class Library(object):
 
 # holds each sample's BAM and library information
 class Sample(object):
-    # constructor for empirical distributions
+    # general constructor
     def __init__(self,
                  name,
                  bam,
-                 spl_bam,
                  num_samp,
                  lib_dict,
                  rg_to_lib,
                  min_lib_prevalence):
-                 # lib_info_file = None):
 
         self.name = name
         self.bam = bam
-        self.spl_bam = spl_bam
-
         self.lib_dict = lib_dict
         self.rg_to_lib = rg_to_lib
 
@@ -611,10 +606,10 @@ class Sample(object):
             if lib.prevalence >= min_lib_prevalence:
                 self.active_libs.append(lib)
 
+    # constructor from supplied JSON descriptor
     @classmethod
     def from_lib_info(cls,
                       bam,
-                      spl_bam,
                       lib_info,
                       min_lib_prevalence):
 
@@ -639,16 +634,15 @@ class Sample(object):
 
         return cls(name,
                    bam,
-                   spl_bam,
                    num_samp,
                    lib_dict,
                    rg_to_lib,
                    min_lib_prevalence)
 
+    # constructor for empirical distributions
     @classmethod
     def from_bam(cls,
                  bam,
-                 spl_bam,
                  num_samp,
                  min_lib_prevalence):
 
@@ -674,7 +668,6 @@ class Sample(object):
 
         return cls(name,
                    bam,
-                   spl_bam,
                    num_samp,
                    lib_dict,
                    rg_to_lib,
@@ -695,7 +688,6 @@ def write_sample_json(sample_list, lib_info_dump):
         s = {}
         s['sample_name'] = sample.name
         s['bam'] = sample.bam.filename
-        s['split_bam'] = sample.spl_bam.filename
         s['libraryArray'] = []
         s['mapped'] = sample.bam.mapped
         s['unmapped'] = sample.bam.unmapped
@@ -749,30 +741,30 @@ def is_split(readA, readB,
         return False
 
     # check orientations and positions
-    if o1 and readA.reference_end <= posA + split_slop:
-        return True
-    elif not o1 and readA.reference_start >= posA - split_slop:
-        return True
-    elif o2 and readB.reference_end <= posB + split_slop:
-        return True
-    elif not o2 and readB.reference_start >= posB - split_slop:
-        return True
-
-    else:
+    if o1 and readA.reference_end > posA + split_slop:
+        return False
+    elif not o1 and readA.reference_start < posA - split_slop:
+        return False
+    elif o2 and readB.reference_end > posB + split_slop:
+        return False
+    elif not o2 and readB.reference_start < posB - split_slop:
         return False
 
+    else:
+        return True
+
     # # check orientations and positions
-    # if o1 and readA.reference_end > posA + split_slop:
-    #     return False
-    # elif not o1 and readA.reference_start < posA - split_slop:
-    #     return False
-    # elif o2 and readB.reference_end > posB + split_slop:
-    #     return False
-    # elif not o2 and readB.reference_start < posB - split_slop:
-    #     return False
+    # if o1 and readA.reference_end <= posA + split_slop:
+    #     return True
+    # elif not o1 and readA.reference_start >= posA - split_slop:
+    #     return True
+    # elif o2 and readB.reference_end <= posB + split_slop:
+    #     return True
+    # elif not o2 and readB.reference_start >= posB - split_slop:
+    #     return True
 
     # else:
-    #     return True
+    #     return False
 
 # read is neither secondary nor supplementary
 def is_primary(read):
@@ -946,10 +938,10 @@ def gather_reads(sample,
     return fragment_dict
 
 # primary function
-def sv_genotype(vcf_file,
-                bam_string,
-                spl_bam_string,
+def sv_genotype(bam_string,
+                vcf_file,
                 vcf_out,
+                min_aligned,
                 split_weight,
                 disc_weight,
                 num_samp,
@@ -958,18 +950,9 @@ def sv_genotype(vcf_file,
 
     # grant ability to modify global variables
     global out_bam_written_reads
-    global out_splitters_bam_written_reads
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
-    if spl_bam_string is not None:
-        spl_bam_list = [pysam.AlignmentFile(b, 'rb') for b in spl_bam_string.split(',')]
-        if len(bam_list) != len(spl_bam_list):
-            sys.stderr.write('\nError: Number of full BAMs and splitters BAMs differ.\n')
-            exit(1)
-    else:
-        sys.stderr.write('Warning: Splitters BAM file (-S) not found. Performance will suffer.\n')
-        spl_bam_list = [None * len(bam_list)]
 
     min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
 
@@ -980,9 +963,9 @@ def sv_genotype(vcf_file,
     sample_list = list()
     for i in xrange(len(bam_list)):
         if lib_info_file is None:
-            sample = Sample.from_bam(bam_list[i], spl_bam_list[i], num_samp, min_lib_prevalence)
+            sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
         else:
-            sample = Sample.from_lib_info(bam_list[i], spl_bam_list[i], lib_info, min_lib_prevalence)
+            sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
 
         sample_list.append(sample)
     
@@ -1275,38 +1258,29 @@ def main():
     # parse the command line args
     args = get_args()
 
-    global legacy
-    legacy = args.legacy
+    # global legacy
+    # legacy = args.legacy
 
     # globally track the reads written to the BAM files
     global out_bam
-    global out_splitters_bam
     global lib_info_dump
     if args.dump:
-        template_bam = pysam.AlignmentFile(args.split_bam.split(',')[0], 'rb')
+        template_bam = pysam.AlignmentFile(args.bam.split(',')[0], 'rb')
         out_bam = pysam.AlignmentFile(args.dump + '.bam', 'wb', template_bam)
-        out_splitters_bam = pysam.AlignmentFile(args.dump + '.splitters.bam', 'wb', template_bam)
         template_bam.close()
         lib_info_dump = open(args.dump + '.lib_info.json', 'w')
     else:
         out_bam = None
-        out_splitters_bam = None
         lib_info_dump = None
 
     global out_bam_written_reads
     out_bam_written_reads = set()
-    global out_splitters_bam_written_reads
-    out_splitters_bam_written_reads = set()
-
-    # minimum number of aligned bases for a read to contribute to evidence
-    global min_aligned
-    min_aligned = args.min_aligned
 
     # call primary function
-    sv_genotype(args.input_vcf,
-                args.bam,
-                args.split_bam,
+    sv_genotype(args.bam,
+                args.input_vcf,
                 args.output_vcf,
+                args.min_aligned,
                 args.split_weight,
                 args.disc_weight,
                 args.num_samp,
@@ -1317,7 +1291,6 @@ def main():
     args.input_vcf.close()
     if args.dump is not None:
         out_bam.close()
-        out_splitters_bam.close()
     if args.lib_info_file is not None:
         args.lib_info_file.close()
 
