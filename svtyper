@@ -26,6 +26,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     # parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
     # parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
+    parser.add_argument('-m', '--min_aligned', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
@@ -331,275 +332,6 @@ def bayes_gt(ref, alt, is_dup):
 
     return (lp_homref, lp_het, lp_homalt)
 
-# return the 5' alignment coordinate of the mate read by parsing the MC (mate cigar) SAM field
-# biobambam puts the coordinate of the mate's pair in the MC flag, while samblaster provides a CIGAR string
-def get_mate_5prime(bam, read):
-    # if 'MC' in [t[0] for t in read.tags]:
-    try:
-        mc = read.opt('MC') # the mate CIGAR string
-        if mc == '*':
-            return
-        # try to find from a coordinate (biobambam style)
-        try:
-            p = int(mc)
-        # otherwise get it from a CIGAR string (samblaster style)
-        except ValueError:
-            keys = re.findall('[MIDNSHPX=]+', mc)
-            nums = map(int, re.findall('[^MIDNSHPX=]+', mc))
-
-            p = read.pnext
-            for i in xrange(len(keys)):
-                k = keys[i]
-                n = nums[i]
-                if k == 'M' or k == 'N' or k == 'D':
-                    p += n
-    except KeyError:
-        p = bam.mate(read).aend
-    return p
-
-def get_mate_mapq(bam, read):
-    # if 'MQ' in [t[0] for t in read.tags]:
-    try:
-        mq = read.opt('MQ') # the mate mapq score
-        if mq == '*':
-            return
-    except KeyError:
-        mq = bam.mate(read).mapq
-    return mq
-
-def count_pairedend(chrom,
-                    pos,
-                    ci,
-                    mate_chrom,
-                    mate_pos,
-                    mate_ci,
-                    o1,
-                    o2,
-                    svtype,
-                    sample,
-                    z,
-                    out_bam):
-
-    # grant ability to modify global variables
-    global out_bam_written_reads
-    global out_splitters_bam_written_reads
-
-    conc_counter = 0
-    disc_counter = 0
-    conc_scaled_counter = 0
-    disc_scaled_counter = 0
-
-    fetch_flank = sample.get_fetch_flank(z)
-
-    # don't count paired-end reads if deletion is smaller than 2 * standard dev of library
-    if svtype == 'DEL':
-        for lib in sample.lib_dict.values():
-            if abs(mate_pos - pos) < 2 * lib.sd:
-                return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
-
-    if o1 == '+' or svtype == 'INV':
-        # survey for concordant read pairs
-        reads0 = []
-        for read in sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos):
-            if read.is_unmapped: continue
-            reads0.append(read)
-            lib = sample.get_lib(read.opt('RG')) # get the read's library
-            if (read.is_reverse
-                or not read.mate_is_reverse
-                or (legacy and read.is_secondary)
-                or (not legacy and read.flag & 2048 == 2048)
-                or read.is_unmapped
-                or read.mate_is_unmapped
-                or read.is_duplicate
-                or read.pos + min_aligned > pos
-                or read.pnext + lib.read_length - min_aligned < pos
-                or read.tid != read.rnext
-                or lib not in sample.active_libs
-                ):
-                continue
-            else:
-                mate_mapq = get_mate_mapq(sample.bam, read)
-                ospan = get_mate_5prime(sample.bam, read) - read.pos
-                ispan1 = read.pos + min_aligned
-                ispan2 = get_mate_5prime(sample.bam, read) - min_aligned - 1 # speed up here
-                ispan = ispan2 - ispan1
-                prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
-
-                if ispan2 > pos and prob_conc is not None: # bail if neither concordant or discordant
-                    # write to BAM output
-                    out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
-
-                    conc_counter += 1
-                    conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    # if a deletion, iterate the discordants for these too
-                    if svtype == 'DEL' and ispan2 >= mate_ci[0]:
-                        # disc_p = (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                        # if disc_p > 0.5:
-                        #     print ispan2, mate_ci[0]
-                        #     print read
-                        disc_counter += 1
-                        disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-
-        # now look at discordants for corresponding SV types
-        if svtype != 'DEL':
-            readiter = reads0 or sample.bam.fetch(chrom, max(pos - (fetch_flank), 0), pos)
-            for read in readiter:
-                # write to BAM output
-                out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
-                lib = sample.get_lib(read.opt('RG')) # get the read's library
-                if (read.is_reverse
-                    or (legacy and read.is_secondary)
-                    or (not legacy and read.flag & 2048 == 2048)
-                    or read.is_unmapped
-                    or read.mate_is_unmapped
-                    or read.is_duplicate
-                    or read.pos + min_aligned > pos
-                    or sample.bam.getrname(read.rnext) != mate_chrom
-                    or lib not in sample.active_libs
-                    ):
-                    continue
-
-                mate_mapq = get_mate_mapq(sample.bam, read) # move this for speed
-                mate_5prime = get_mate_5prime(sample.bam, read)
-                if svtype == 'DUP':
-                    if not read.mate_is_reverse or read.pnext > read.pos or read.tid != read.rnext:
-                        continue
-                    ispan1 = read.pos + min_aligned
-                    ispan2 = mate_5prime - min_aligned - 1
-                    if ispan1 < pos and ispan2 < ispan1 and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
-                        # print "+-", read
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'INV':
-                    if read.mate_is_reverse:
-                        continue
-                    ispan1 = read.pos + min_aligned
-                    ispan2 = read.pnext + min_aligned
-                    if ispan1 < pos and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
-                        # print "++", read
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'BND':
-                    if o2 == '-':
-                        if not read.mate_is_reverse or read.pnext + lib.read_length - min_aligned < mate_pos:
-                            continue
-                        ispan1 = read.pos + min_aligned
-                        ispan2 = mate_5prime - min_aligned - 1
-                        if ispan1 < pos and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
-                            # print "+- BND", read
-                            disc_counter += 1
-                            disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if o2 == '+':
-                        if read.mate_is_reverse or read.pnext + min_aligned > mate_pos:
-                            continue
-                        ispan1 = read.pos + min_aligned
-                        ispan2 = read.pnext + min_aligned
-                        if ispan1 < pos and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
-                            disc_counter += 1
-                            disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-
-    reads1 = []
-    if o1 == '-' or svtype == 'INV':
-        # survey for concordant read pairs
-        for read in sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank)):
-            if read.is_unmapped: continue
-            reads1.append(read)
-            lib = sample.get_lib(read.opt('RG')) # get the read's library
-            if (not read.is_reverse
-                or read.mate_is_reverse
-                or (legacy and read.is_secondary)
-                or (not legacy and read.flag & 2048 == 2048)
-                or read.is_unmapped
-                or read.mate_is_unmapped
-                or read.is_duplicate
-                or read.aend - min_aligned < pos
-                or read.pnext + min_aligned > pos
-                or read.tid != read.rnext
-                or lib not in sample.active_libs
-                ):
-                continue
-            else:
-                mate_mapq = get_mate_mapq(sample.bam, read)
-                ospan = read.aend - read.pnext
-                ispan1 = read.aend - min_aligned - 1
-                ispan2 = read.pnext + min_aligned
-                ispan = ispan1 - ispan2
-                prob_conc = p_concordant(ospan, abs(mate_pos - pos), lib.dens)
-
-                if ispan2 < pos and prob_conc is not None: # bail if neither concordant or discordant
-                    # write to BAM output
-                    out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
-
-                    conc_counter += 1
-                    conc_scaled_counter += prob_conc * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if svtype == 'DEL' and ispan2 <= mate_ci[1]:
-                        # disc_p = (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                        # if disc_p > 0.5:
-                        #     print ispan1, mate_ci[1]
-                        #     print read
-                        disc_counter += 1
-                        disc_scaled_counter += (1 - prob_conc) * (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-
-        # now look at discordants for corresponding SV types
-        if svtype != 'DEL':
-            readiter = reads1 or sample.bam.fetch(chrom, max(pos, 0), pos + (fetch_flank))
-            for read in readiter:
-                # write to BAM output
-                out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
-                lib = sample.get_lib(read.opt('RG')) # get the read's library
-                if (not read.is_reverse
-                    or (legacy and read.is_secondary)
-                    or (not legacy and read.flag & 2048 == 2048)
-                    or read.is_unmapped
-                    or read.mate_is_unmapped
-                    or read.is_duplicate
-                    or read.aend - min_aligned < pos
-                    or sample.bam.getrname(read.rnext) != mate_chrom
-                    or lib not in sample.active_libs
-                    ):
-                    continue
-
-                mate_mapq = get_mate_mapq(sample.bam, read) # move this for speed
-                mate_5prime = get_mate_5prime(sample.bam, read)
-
-                if svtype == 'DUP':
-                    if read.mate_is_reverse or read.pnext < read.pos or read.tid != read.rnext:
-                        continue
-                    ispan1 = read.aend - min_aligned - 1
-                    ispan2 = read.pnext + min_aligned
-                    if ispan1 > pos and ispan2 > ispan1 and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
-                        # print "-+", read
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'INV':
-                    if not read.mate_is_reverse:
-                        continue
-                    ispan1 = read.aend - min_aligned - 1
-                    ispan2 = mate_5prime - min_aligned - 1
-                    if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
-                        # print "--", read
-                        disc_counter += 1
-                        disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                elif svtype == 'BND':
-                    if o2 == '-':
-                        if not read.mate_is_reverse or read.pnext + lib.read_length - min_aligned < mate_pos:
-                            continue
-                        ispan1 = read.aend - min_aligned - 1
-                        ispan2 = mate_5prime - min_aligned - 1
-                        if ispan1 > pos and ispan2 >= mate_ci[0] and ispan2 <= (mate_ci[1] + (lib.mean + lib.sd * z)):
-                            disc_counter += 1
-                            disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-                    if o2 == '+':
-                        if read.mate_is_reverse or read.pnext + min_aligned > mate_pos:
-                            continue
-                        ispan1 = read.aend - min_aligned - 1
-                        ispan2 = read.pnext + min_aligned
-                        if ispan1 > pos and ispan2 <= mate_ci[1] and ispan2 >= (mate_ci[0] - (lib.mean + lib.sd * z)):
-                            disc_counter += 1
-                            disc_scaled_counter += (1-10**(-read.mapq/10.0)) * (1-10**(-mate_mapq/10.0))
-
-    return (conc_counter, disc_counter, conc_scaled_counter, disc_scaled_counter)
-
 # get the number of entries in the set
 def countRecords(myCounter):
     numRecords = sum(myCounter.values())
@@ -780,7 +512,7 @@ class Library(object):
         for read in self.bam.fetch():
             if read_counter == max_count:
                 break
-            if read.opt('RG') in self.readgroups:
+            if read.get_tag('RG') in self.readgroups:
                 lib_counter += 1
             read_counter += 1
 
@@ -792,10 +524,10 @@ class Library(object):
         counter = 0
         num_samp = 10000
         for read in self.bam.fetch():
-            if read.opt('RG') not in self.readgroups:
+            if read.get_tag('RG') not in self.readgroups:
                 continue
-            if read.inferred_length > max_rl:
-                max_rl = read.inferred_length
+            if read.infer_query_length() > max_rl:
+                max_rl = read.infer_query_length()
             if counter == num_samp:
                 break
             counter += 1
@@ -821,13 +553,12 @@ class Library(object):
                 or not read.mate_is_reverse
                 or read.is_unmapped
                 or read.mate_is_unmapped
-                or (legacy and read.is_secondary)
-                or (not legacy and read.flag & 2048 == 2048)
-                or read.tlen <= 0
-                or read.opt('RG') not in self.readgroups):
+                or not is_primary(read)
+                or read.template_length <= 0
+                or read.get_tag('RG') not in self.readgroups):
                 continue
             else:
-                valueCounts[read.tlen] += 1
+                valueCounts[read.template_length] += 1
                 counter += 1
             if counter == self.num_samp:
                 break
@@ -983,11 +714,56 @@ def write_sample_json(sample_list, lib_info_dump):
     json.dump(lib_info, lib_info_dump, indent=4)
     lib_info_dump.close()
 
-def is_primary(read, legacy):
-    if legacy:
-        return not read.is_secondary
+def non_overlap(startA, endA, strand_A, startB, endB, strandB):
+    # to do
+    return
+
+def read_overlaps(read, chrom, pos, min_aligned):
+    if read.reference_name != chrom:
+        return False
+    return pos in read.positions[min_aligned:-min_aligned]
+
+def is_split(readA, readB,
+             chromA, posA,
+             chromB, posB,
+             o1, o2,
+             split_slop,
+             min_aligned,
+             min_non_overlap = 20):
+
+    # check chrom and strands
+    if (readA.is_reverse and o1 == '+'
+        or readB.is_reverse and o2 == '+'
+        or readA.reference_name != chromA
+        or readB.reference_name != chromB):
+        return False
+
+    # infer query alignment length from CIGAR
+    readA_alignment_length = sum([x[1] for x in readA.cigartuples if (x[0] == 0 or x[0] == 7)])
+    readB_alignment_length = sum([x[1] for x in readB.cigartuples if (x[0] == 0 or x[0] == 7)])
+    if readA_alignment_length < min_aligned or readB_alignment_length < min_aligned:
+        return False
+
+    # check orientations and positions
+    if o1 == '+' and readA.reference_end > posA + split_slop:
+        return False
+    elif o1 == '-' and readA.reference_start < posA - split_slop:
+        return False
+    elif o2 == '+' and readB.reference_end > posB + split_slop:
+        return False
+    elif o2 == '-' and readB.reference_start < posB - split_slop:
+        return False
+
     else:
-        return not read.flag & 2048 == 2048
+        return True
+
+def is_primary(read):
+    # read is neither secondary nor supplementary
+    return (not read.is_supplementary and not read.is_secondary)
+    # if legacy:
+    #     return not read.is_secondary
+    # else:
+    #     return not read.flag & 2048 == 2048
 
 # get the non-phred-scaled mapq of a read
 def prob_mapq(read):
@@ -1003,7 +779,6 @@ def flip_strand(strand):
 class SamFragment(object):
     def __init__(self, read, lib):
         self.lib = lib
-        self.bam = lib.bam
         self.primary_reads = []
         self.auxil_reads = []
         self.read_set = set()
@@ -1018,20 +793,26 @@ class SamFragment(object):
 
         self.add_read(read)
 
+    def group_reads(self):
+        read_dict = {}
+        for read in self.primary_reads + self.auxil_reads:
+            read_sided = (read.qname, read.is_read1)
+            if read_sided in read_dict:
+                read_dict[read_sided].append(read)
+            else:
+                read_dict[read_sided] = [read]
+        return read_dict
+
     def add_read(self, read):
-        # concise_read = ConciseRead(read)
-        # self.reads.append(concise_read)
         read_id = "%s,%s,%s" % (read.qname, read.flag, read.cigarstring)
         if read_id in self.read_set:
             return
         else:
             self.read_set.add(read_id)
         
-        if is_primary(read, legacy):
+        if is_primary(read):
             self.primary_reads.append(read)
             self.num_primary += 1
-            # sort by position
-            self.primary_reads.sort(key=lambda x: x.pos)
 
             # complete set of primaries
             if self.num_primary == 2:
@@ -1042,50 +823,29 @@ class SamFragment(object):
                         self.orientation[i] = '-'
                     else:
                         self.orientation[i] = '+'
-                
-                # if (self.readA.tid == self.readB.tid
-                #     and self.orientation == ['+', '-']):
-                self.ispan = self.get_ispan(min_aligned)
-                self.ospan = self.get_ospan()
         else:
             self.auxil_reads.append(read)
             self.num_auxil += 1
-            # sort by position
-            self.auxil_reads.sort(key=lambda x: x.pos)
-
-    # return whether fragment is complete or not
-    def is_complete(self):
-        # to do
-        return
 
     def get_ispan(self, min_aligned):
-        ispan1 = self.readA.pos + min_aligned
-        ispan2 = self.readB.aend - min_aligned - 1
+        ispan1 = self.readA.reference_start + min_aligned
+        ispan2 = self.readB.reference_end - min_aligned - 1
 
         return (ispan1, ispan2)
 
     def get_ospan(self):
-        ospan1 = self.readA.pos
-        ospan2 = self.readB.aend
+        ospan1 = self.readA.reference_start
+        ospan2 = self.readB.reference_end
 
         return (ospan1, ospan2)
 
-# calculate the probability that a read pair is concordant at a breakpoint,
-# given the putative variant size and insert distribution of the library.
-# def p_concordant(readA, readB, o1, o2, var_length, ins_dens):
-#     conc_prior = 0.95 # a priori probability that a read-pair is concordant
-#     disc_prior = 1 - conc_prior
-#     try:
-#         p = float(ins_dens[read_ospan]) * conc_prior / (conc_prior * ins_dens[read_ospan] + disc_prior * (ins_dens[read_ospan - var_length]))
-#     except ZeroDivisionError:
-#         p = None
-#     return p
-
-    # returns boolean of whether the fragment straddles a genomic point
+    # returns boolean of whether the primary pair of a
+    # fragment straddles a genomic point
     def is_pair_straddle(self,
-                    chromA, posA, ciA,
-                    chromB, posB, ciB,
-                    o1, o2):
+                         chromA, posA, ciA,
+                         chromB, posB, ciB,
+                         o1, o2,
+                         min_aligned):
         if self.num_primary != 2:
             return False
         
@@ -1094,51 +854,35 @@ class SamFragment(object):
             return False
         
         # check chromosome matching
-        elif self.bam.getrname(self.readA.rname) != chromA:
+        elif self.readA.reference_name != chromA:
             return False
-        elif self.bam.getrname(self.readB.rname) != chromB:
+        elif self.readB.reference_name != chromB:
             return False
 
+        # get the inner span
+        ispan = self.get_ispan(min_aligned)
+
         # check orientations and positions
-        elif o1 == '+' and self.ispan[0] > posA:
+        if o1 == '+' and ispan[0] > posA:
             return False
-        elif o1 == '-' and self.ispan[0] < posA:
+        elif o1 == '-' and ispan[0] < posA:
             return False
-        elif o2 == '+' and self.ispan[1] > posB:
+        elif o2 == '+' and ispan[1] > posB:
             return False
-        elif o2 == '-' and self.ispan[1] < posB:
+        elif o2 == '-' and ispan[1] < posB:
             return False
 
         else:
             return True
 
-        # # check that the inner span surrounds at least one of the breakpoints
-        # # + -
-        # if self.ispan[0] < posA and self.ispan[1] > posA:
-        #     return True
-        
-        # if self.ispan[0] < posB and self.ispan[1] > posB:
-        #     return True
-        # else:
-        #     return False
-
-        # # + +
-        # if self.ispan[0] < posA and self.ispan[1] < posA:
-        #     return True
-        # if self.ispan[0] < posB and self.ispan[1] < posB:
-        #     return True
-
-        # # - -
-        # if self.ispan[0] > posA and self.ispan[1] > posA:
-        #     return True
-        # if self.ispan[0] > posB and self.ispan[1] > posB:
-        #     return True
-
-        # # - +
-        # if self.ispan[0] > posA and self.ispan[1] < posA:
-        #     return True
-        # if self.ispan[0] > posB and self.ispan[1] < posB:
-        #     return True
+    def is_sequence_straddle(self,
+                             chromA, posA, ciA,
+                             chromB, posB, ciB,
+                             o1, o2):
+        for read in self.primary_reads + self.auxil_reads:
+            print read
+            # split_read = self.SplitRead(read)
+        return
 
     # calculate the probability that a read pair is concordant at a breakpoint,
     # given the putative variant size and insert distribution of the library.
@@ -1147,8 +891,10 @@ class SamFragment(object):
         conc_prior = 0.95
         disc_prior = 1 - conc_prior
 
+        ospan = self.get_ospan()
+
         # outer span length
-        ospan_length = abs(self.ospan[1] - self.ospan[0])
+        ospan_length = abs(ospan[1] - ospan[0])
 
         # if no variant length (such as in the case of a non-deletion variant)
         # default to mean plus 3 stdev
@@ -1162,47 +908,6 @@ class SamFragment(object):
             p = None
         return p
 
-
-
-        # if self.num_primary < 2:
-        #     return False
-        # elif self.num_primary == 2:
-        #     print self.ispan[0], self.ispan[1]
-        #     # return ((posA > ispan1 and posA < ispan2)
-        #     #         or posB > ispan1 and posB < ispan2)
-
-        # else: # this should never happen
-        #     sys.stderr.write('Error, more than 2 primary reads')
-        #     exit(1)
-
-        # return
-
-    def is_alt_straddle(self,
-                        chromA, posA, ciA,
-                        chromB, posB, ciB,
-                        o1, o2):
-        # print self.num_primary
-        if self.num_primary < 2:
-            return False
-        elif self.num_primary == 2:
-            readA, readB = self.primary_reads
-            if readA.is_reverse and not readB.is_reverse:
-                readA, readB = readB, readA
-
-            # print readA
-            # print readB
-            ispan1 = readA.pos + min_aligned
-            ispan2 = readB.aend - min_aligned - 1
-            print ispan1, ispan2, posA, posB
-            return ((posA > ispan1 and posA < ispan2)
-                    or posB > ispan1 and posB < ispan2)
-
-        else: # this should never happen
-            sys.stderr.write('Error, more than 2 primary reads')
-            exit(1)
-
-        return
-
 def gather_reads(sample,
                  chrom, pos, ci,
                  z,
@@ -1214,10 +919,8 @@ def gather_reads(sample,
     chrom_length = sample.bam.lengths[sample.bam.gettid(chrom)]
 
     for read in sample.bam.fetch(chrom, max(ci[0] - fetch_flank, 0), min(ci[1] + fetch_flank, chrom_length)):
-        lib = sample.get_lib(read.opt('RG')) # get the read's library
+        lib = sample.get_lib(read.get_tag('RG')) # get the read's library
         if (read.is_unmapped
-            or (legacy and read.is_secondary)
-            or not is_primary(read, legacy)
             or read.is_duplicate
             or lib not in sample.active_libs):
             continue
@@ -1229,29 +932,8 @@ def gather_reads(sample,
             fragment_dict[read.qname].add_read(read)
         else:
             fragment_dict[read.qname] = SamFragment(read, lib)
-            
+
     return fragment_dict
-
-def tally_reads(sample,
-                read_batch,
-                chromA, posA, ciA,
-                chromB, posB, ciB,
-                o1, o2,
-                z):
-
-    # for name in read_batch:
-    #     fragment = batchA[nameA]
-    #     # print fragmentA.reads[0].qname
-    #     if nameA in batchB and batchB[nameA].num_primary > 0:
-    #         for readA in batchA[nameA].primary_reads:
-                
-    #             # print batchA[nameA].primary_reads[0].pos
-    #             # print batchB[nameA].primary_reads[0].pos
-    #             for readB in batchB[nameA].primary_reads:
-    #                 print is_breakpoint_straddle(readA, readB, chromA, posA, ciA)
-    #         # print nameA in batchB
-
-    return
 
 # primary function
 def sv_genotype(vcf_file,
@@ -1269,9 +951,9 @@ def sv_genotype(vcf_file,
     global out_splitters_bam_written_reads
 
     # parse the comma separated inputs
-    bam_list = [pysam.Samfile(b, 'rb') for b in bam_string.split(',')]
+    bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
     if spl_bam_string is not None:
-        spl_bam_list = [pysam.Samfile(b, 'rb') for b in spl_bam_string.split(',')]
+        spl_bam_list = [pysam.AlignmentFile(b, 'rb') for b in spl_bam_string.split(',')]
         if len(bam_list) != len(spl_bam_list):
             sys.stderr.write('\nError: Number of full BAMs and splitters BAMs differ.\n')
             exit(1)
@@ -1299,7 +981,6 @@ def sv_genotype(vcf_file,
         write_sample_json(sample_list, lib_info_dump)
 
     z = 3
-    padding = 30 # this is the left/right distance for fetching splitters
     split_slop = 3 # amount of slop around breakpoint to count splitters
     in_header = True
     header = []
@@ -1393,197 +1074,98 @@ def sv_genotype(vcf_file,
         if svtype == 'DEL':
             var_length = posB - posA
 
-        print chromA, posA, chromB, posB, svtype
+        # print chromA, posA, chromB, posB, svtype
 
-        # for i in xrange(len(bam_list)):
+
         for sample in sample_list:
             read_batch = {}
             read_batch = gather_reads(sample, chromA, posA, ciA, z, read_batch)
             read_batch = gather_reads(sample, chromB, posB, ciB, z, read_batch)
-
+            
             # print read_batch
 
-            ref_pair, alt_pair = 0, 0
+            ref_span, alt_span = 0, 0
+            ref_seq, alt_seq = 0, 0
 
             for fragment in read_batch.values():
-                # tally reference pairs
+                # tally spanning reference pairs
                 ref_ci = [-100,100]
+
                 ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ci,
                                                            chromA, posA, ref_ci,
-                                                           '+', '-')
+                                                           '+', '-',
+                                                           min_aligned)
                 ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ci,
                                                            chromB, posB, ref_ci,
-                                                           '+', '-')
+                                                           '+', '-',
+                                                           min_aligned)
                 if ref_straddle_A or ref_straddle_B:
                     # print fragment.readA.qname, fragment.ispan
                     p_conc = fragment.p_concordant(var_length)
                     if p_conc is not None:
                         p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                        ref_pair += p_reference
+                        ref_span += p_reference
 
-                # tally alternate pairs
+                # tally spanning alternate pairs
                 alt_straddle = fragment.is_pair_straddle(chromA, posA, ref_ci,
                                                          chromB, posB, ref_ci,
-                                                         o1, o2)
-                alt_straddle_reciprocal = fragment.is_pair_straddle(chromA, posA, ref_ci,
-                                                                    chromB, posB, ref_ci,
-                                                                    flip_strand(o1),
-                                                                    flip_strand(o2))
+                                                         o1, o2,
+                                                         min_aligned)
+
+                # check both sides if inversion (perhaps should do this for BND as well?)
+                if svtype in ('INV'):
+                    alt_straddle_reciprocal = fragment.is_pair_straddle(chromA, posA, ref_ci,
+                                                                        chromB, posB, ref_ci,
+                                                                        flip_strand(o1),
+                                                                        flip_strand(o2),
+                                                                        min_aligned)
+                else: alt_straddle_reciprocal = False
 
                 if alt_straddle or alt_straddle_reciprocal:
                     if svtype == 'DEL':
                         p_conc = fragment.p_concordant(var_length)
                         if p_conc is not None:
                             p_alt = (1 - p_conc) * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                            alt_pair += p_alt
+                            alt_span += p_alt
                     else:
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                        alt_pair += p_alt
+                        alt_span += p_alt
 
-                # tally reference splitters
+                # tally reference sequences
+                for read_thing in fragment.group_reads().values():
+                    if len(read_thing) == 2:
+                        if is_split(read_thing[0], read_thing[1],
+                                    chromA, posA,
+                                    chromB, posB,
+                                    o1, o2,
+                                    split_slop,
+                                    min_aligned):
+                            alt_seq += max(prob_mapq(read_thing[0]), prob_mapq(read_thing[1]))
 
-            print ref_pair, alt_pair
+                        # do I have to flip the reads and do it again?
+                    else:
+                        read = read_thing[0]        
+                         
+                        # get ref overlaps
+                        ref_overlap_A = read_overlaps(read, chromA, posA, min_aligned) # min_aligned + split_slop?
+                        ref_overlap_B = read_overlaps(read, chromB, posB, min_aligned)
+                        if ref_overlap_A or ref_overlap_B:
+                            ref_seq += prob_mapq(read)
+
+            if debug:
+                print 'ref_span:', ref_span
+                print 'alt_span:', alt_span
+                print 'ref_seq:', ref_seq
+                print 'alt_seq:', alt_seq
 
             continue
-            
-            '''
-            Breakend A
-            '''
-            # Count splitters
-            ref_counter_a = Counter()
-            spl_counter_a = Counter()
-            ref_scaled_counter_a = Counter()
-            spl_scaled_counter_a = Counter()
-            if spl_bam_string is not None:
-                for ref_read in sample.bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
-                    if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                        # write to BAM output
-                        out_bam_written_reads = write_read(ref_read, out_bam, out_bam_written_reads)
-                        for p in xrange(ref_read.pos + min_aligned, ref_read.aend + 1 - min_aligned):
-                            if p - ref_read.pos >= min_aligned and ref_read.aend - p >= min_aligned:
-                                ref_counter_a[p] += 1
-                                ref_scaled_counter_a[p] += (1-10**(-ref_read.mapq/10.0))
 
-
-                for spl_read in sample.spl_bam.fetch(chromA, max(posA - padding, 0), posA + padding + 1):
-                    if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                        # write to BAM output
-                        out_splitters_bam_written_reads = write_read(spl_read, out_splitters_bam, out_splitters_bam_written_reads)
-                        if o1 == '+' and spl_read.cigar[0][0] == 0:
-                            # if debug: print 'o1+', spl_read.aend
-                            spl_counter_a[spl_read.aend] += 1
-                            spl_scaled_counter_a[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
-                        elif o1 == '-' and spl_read.cigar[-1][0] == 0:
-                            # if debug: print 'o1-', spl_read.pos + 1
-                            spl_counter_a[spl_read.pos + 1] += 1
-                            spl_scaled_counter_a[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
-
-            # Count paired-end discordant and concordants
-            (conc_counter_a,
-             disc_counter_a,
-             conc_scaled_counter_a,
-             disc_scaled_counter_a) = count_pairedend(chromA, posA, ciA,
-                                                      chromB, posB, ciB,
-                                                      o1, o2,
-                                                      var.info['SVTYPE'],
-                                                      sample,
-                                                      z, min_aligned,
-                                                      out_bam)
-            '''
-            Breakend B
-            '''
-            # Count splitters
-            ref_counter_b = Counter()
-            spl_counter_b = Counter()
-            ref_scaled_counter_b = Counter()
-            spl_scaled_counter_b = Counter()
-            if spl_bam_string is not None:
-                for ref_read in sample.bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-                    if not ref_read.is_duplicate and not ref_read.is_unmapped:
-                        # write to BAM output
-                        out_bam_written_reads = write_read(ref_read, out_bam, out_bam_written_reads)
-                        for p in xrange(ref_read.pos + min_aligned, ref_read.aend + 1 - min_aligned):
-                            if p - ref_read.pos >= min_aligned and ref_read.aend - p >= min_aligned:
-                                ref_counter_b[p] += 1
-                                ref_scaled_counter_b[p] += (1-10**(-ref_read.mapq/10.0))
-                for spl_read in sample.spl_bam.fetch(chromB, max(posB - padding, 0), posB + padding + 1):
-                    if not spl_read.is_duplicate and not spl_read.is_unmapped:
-                        # write to BAM output
-                        write_read(spl_read, out_splitters_bam, out_splitters_bam_written_reads)
-                        if o2 == '+' and spl_read.cigar[0][0] == 0:
-                            spl_counter_b[spl_read.aend] += 1
-                            # if debug: print 'o2+', spl_read.aend
-                            spl_scaled_counter_b[spl_read.aend] += (1-10**(-spl_read.mapq/10.0))
-                        elif o2 == '-' and spl_read.cigar[-1][0] == 0:
-                            # if debug: print 'o2-', spl_read.pos + 1
-                            spl_counter_b[spl_read.pos + 1] += 1
-                            spl_scaled_counter_b[spl_read.pos + 1] += (1-10**(-spl_read.mapq/10.0))
-
-            # tally up the splitters
-            sr_ref_a = int(round(sum(ref_counter_a[p] for p in xrange(posA - split_slop, posA + split_slop + 1)) / float(2 * split_slop + 1)))
-            sr_spl_a = sum(spl_counter_a[p] for p in xrange(posA-split_slop, posA+split_slop + 1))
-            sr_ref_b = int(round(sum(ref_counter_b[p] for p in xrange(posB - split_slop, posB + split_slop + 1)) / float(2 * split_slop + 1)))
-            sr_spl_b = sum(spl_counter_b[p] for p in xrange(posB - split_slop, posB + split_slop + 1))
-
-            sr_ref_scaled_a = sum(ref_scaled_counter_a[p] for p in xrange(posA - split_slop, posA + split_slop + 1)) / float(2 * split_slop + 1)
-            sr_spl_scaled_a = sum(spl_scaled_counter_a[p] for p in xrange(posA-split_slop, posA+split_slop + 1))
-            sr_ref_scaled_b = sum(ref_scaled_counter_b[p] for p in xrange(posB - split_slop, posB + split_slop + 1)) / float(2 * split_slop + 1)
-            sr_spl_scaled_b = sum(spl_scaled_counter_b[p] for p in xrange(posB - split_slop, posB + split_slop + 1))
-
-            # Count paired-end discordants and concordants
-            (conc_counter_b,
-             disc_counter_b,
-             conc_scaled_counter_b,
-             disc_scaled_counter_b) = count_pairedend(chromB, posB, ciB,
-                                                      chromA, posA, ciA,
-                                                      o2, o1,
-                                                      var.info['SVTYPE'],
-                                                      sample,
-                                                      z, min_aligned,
-                                                      out_bam)
-            if debug:
-                print '--------------------'
-                print sample.name
-                print 'sr_a', '(ref, alt)', sr_ref_a, sr_spl_a
-                print 'pe_a', '(ref, alt)', conc_counter_a, disc_counter_a
-                print 'sr_b', '(ref, alt)', sr_ref_b, sr_spl_b
-                print 'pe_b', '(ref, alt)', conc_counter_b, disc_counter_b
-                print 'sr_a_scaled', '(ref, alt)', sr_ref_scaled_a, sr_spl_scaled_a
-                print 'pe_a_scaled', '(ref, alt)', conc_scaled_counter_a, disc_scaled_counter_a
-                print 'sr_b_scaled', '(ref, alt)', sr_ref_scaled_b, sr_spl_scaled_b
-                print 'pe_b_scaled', '(ref, alt)', conc_scaled_counter_b, disc_scaled_counter_b
-
-            # merge the breakend support
-            split_ref = 0 # set these to zero unless there are informative alt bases for the ev type
-            disc_ref = 0
-            split_alt = sr_spl_a + sr_spl_b
-            if split_alt > 0:
-                split_ref = sr_ref_a + sr_ref_b
-            disc_alt = disc_counter_a + disc_counter_b
-            if disc_alt > 0:
-                disc_ref = conc_counter_a + conc_counter_b
-            if split_alt == 0 and disc_alt == 0:
-                split_ref = sr_ref_a + sr_ref_b
-                disc_ref = conc_counter_a + conc_counter_b
-
-            split_scaled_ref = 0 # set these to zero unless there are informative alt bases for the ev type
-            disc_scaled_ref = 0
-            split_scaled_alt = sr_spl_scaled_a + sr_spl_scaled_b
-            if int(split_scaled_alt) > 0:
-                split_scaled_ref = sr_ref_scaled_a + sr_ref_scaled_b
-            disc_scaled_alt = disc_scaled_counter_a + disc_scaled_counter_b
-            if int(disc_scaled_alt) > 0:
-                disc_scaled_ref = conc_scaled_counter_a + conc_scaled_counter_b
-            if int(split_scaled_alt) == 0 and int(disc_scaled_alt) == 0: # if no alt alleles, set reference
-                split_scaled_ref = sr_ref_scaled_a + sr_ref_scaled_b
-                disc_scaled_ref = conc_scaled_counter_a + conc_scaled_counter_b
-
-            if split_scaled_alt + split_scaled_ref + disc_scaled_alt + disc_scaled_ref > 0:
+            if ref_seq + alt_seq + ref_span + alt_span > 0:
                 # get bayesian classifier
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
-                QR = int(split_weight * split_scaled_ref) + int(disc_weight * disc_scaled_ref)
-                QA = int(split_weight * split_scaled_alt) + int(disc_weight * disc_scaled_alt)
+                QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
+                QA = int(split_weight * alt_seq) + int(disc_weight * alt_span)
                 gt_lplist = bayes_gt(QR, QA, is_dup)
                 gt_idx = gt_lplist.index(max(gt_lplist))
 
@@ -1593,16 +1175,16 @@ def sv_genotype(vcf_file,
 
                 # set the overall variant QUAL score and sample specific fields
                 var.genotype(sample.name).set_format('GL', ','.join(['%.0f' % x for x in gt_lplist]))
-                var.genotype(sample.name).set_format('DP', int(split_scaled_ref + split_scaled_alt + disc_scaled_ref + disc_scaled_alt))
-                var.genotype(sample.name).set_format('RO', int(split_scaled_ref + disc_scaled_ref))
-                var.genotype(sample.name).set_format('AO', int(split_scaled_alt + disc_scaled_alt))
+                var.genotype(sample.name).set_format('DP', int(ref_seq + alt_seq + ref_span + alt_span))
+                var.genotype(sample.name).set_format('RO', int(ref_seq + ref_span))
+                var.genotype(sample.name).set_format('AO', int(alt_seq + alt_span))
                 var.genotype(sample.name).set_format('QR', QR)
                 var.genotype(sample.name).set_format('QA', QA)
                 # if detailed:
-                var.genotype(sample.name).set_format('RS', int(split_scaled_ref))
-                var.genotype(sample.name).set_format('AS', int(split_scaled_alt))
-                var.genotype(sample.name).set_format('RP', int(disc_scaled_ref))
-                var.genotype(sample.name).set_format('AP', int(disc_scaled_alt))
+                var.genotype(sample.name).set_format('RS', int(ref_seq))
+                var.genotype(sample.name).set_format('AS', int(alt_seq))
+                var.genotype(sample.name).set_format('RP', int(ref_span))
+                var.genotype(sample.name).set_format('AP', int(alt_span))
                 try:
                     var.genotype(sample.name).set_format('AB', '%.2g' % (QA / float(QR + QA)))
                 except ZeroDivisionError:
@@ -1680,9 +1262,9 @@ def main():
     global out_splitters_bam
     global lib_info_dump
     if args.dump:
-        template_bam = pysam.Samfile(args.split_bam.split(',')[0], 'rb')
-        out_bam = pysam.Samfile(args.dump + '.bam', 'wb', template_bam)
-        out_splitters_bam = pysam.Samfile(args.dump + '.splitters.bam', 'wb', template_bam)
+        template_bam = pysam.AlignmentFile(args.split_bam.split(',')[0], 'rb')
+        out_bam = pysam.AlignmentFile(args.dump + '.bam', 'wb', template_bam)
+        out_splitters_bam = pysam.AlignmentFile(args.dump + '.splitters.bam', 'wb', template_bam)
         template_bam.close()
         lib_info_dump = open(args.dump + '.lib_info.json', 'w')
     else:
@@ -1697,7 +1279,7 @@ def main():
 
     # minimum number of aligned bases for a read to contribute to evidence
     global min_aligned
-    min_aligned = 20
+    min_aligned = args.min_aligned
 
     # call primary function
     sv_genotype(args.input_vcf,
@@ -1725,6 +1307,3 @@ if __name__ == '__main__':
     except IOError, e:
         if e.errno != 32:  # ignore SIGPIPE
             raise
-
-
-
