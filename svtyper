@@ -12,6 +12,12 @@ __version__ = "$Revision: 0.0.4 $"
 __date__ = "$Date: 2016-04-05 09:07 $"
 
 # --------------------------------------
+# README
+#
+# 1. orientations o1 and o2 are boolean where
+# plus strand is True and minus strand is False
+
+# --------------------------------------
 # define functions
 
 def get_args():
@@ -730,8 +736,8 @@ def is_split(readA, readB,
              min_non_overlap = 20):
 
     # check chrom and strands
-    if (readA.is_reverse and o1 == '+'
-        or readB.is_reverse and o2 == '+'
+    if (readA.is_reverse and o1
+        or readB.is_reverse and o2
         or readA.reference_name != chromA
         or readB.reference_name != chromB):
         return False
@@ -743,17 +749,30 @@ def is_split(readA, readB,
         return False
 
     # check orientations and positions
-    if o1 == '+' and readA.reference_end > posA + split_slop:
-        return False
-    elif o1 == '-' and readA.reference_start < posA - split_slop:
-        return False
-    elif o2 == '+' and readB.reference_end > posB + split_slop:
-        return False
-    elif o2 == '-' and readB.reference_start < posB - split_slop:
-        return False
+    if o1 and readA.reference_end <= posA + split_slop:
+        return True
+    elif not o1 and readA.reference_start >= posA - split_slop:
+        return True
+    elif o2 and readB.reference_end <= posB + split_slop:
+        return True
+    elif not o2 and readB.reference_start >= posB - split_slop:
+        return True
 
     else:
-        return True
+        return False
+
+    # # check orientations and positions
+    # if o1 and readA.reference_end > posA + split_slop:
+    #     return False
+    # elif not o1 and readA.reference_start < posA - split_slop:
+    #     return False
+    # elif o2 and readB.reference_end > posB + split_slop:
+    #     return False
+    # elif not o2 and readB.reference_start < posB - split_slop:
+    #     return False
+
+    # else:
+    #     return True
 
 # read is neither secondary nor supplementary
 def is_primary(read):
@@ -783,7 +802,6 @@ class SamFragment(object):
         self.readB = None
         self.ispan = None
         self.ospan = None
-        self.orientation = None
 
         self.add_read(read)
 
@@ -812,15 +830,9 @@ class SamFragment(object):
             # complete set of primaries
             if self.num_primary == 2:
                 self.readA, self.readB = self.primary_reads
-                self.orientation = [None, None]
-                for i in xrange(2):
-                    if self.primary_reads[i].is_reverse:
-                        self.orientation[i] = '-'
-                    else:
-                        self.orientation[i] = '+'
         else:
             self.auxil_reads.append(read)
-            self.num_auxil += 1
+            # self.num_auxil += 1
 
     def get_ispan(self, min_aligned):
         ispan1 = self.readA.reference_start + min_aligned
@@ -844,8 +856,10 @@ class SamFragment(object):
         if self.num_primary != 2:
             return False
         
-        # check orientation matching
-        elif self.orientation != [o1, o2]:
+        # check orientation
+        elif self.readA.is_reverse == o1:
+            return False
+        elif self.readB.is_reverse == o2:
             return False
         
         # check chromosome matching
@@ -859,13 +873,13 @@ class SamFragment(object):
         ispan = self.get_ispan(min_aligned)
 
         # check orientations and positions
-        if o1 == '+' and ispan[0] > posA:
+        if o1 and ispan[0] > posA:
             return False
-        elif o1 == '-' and ispan[0] < posA:
+        elif not o1 and ispan[0] < posA:
             return False
-        elif o2 == '+' and ispan[1] > posB:
+        elif o2 and ispan[1] > posB:
             return False
-        elif o2 == '-' and ispan[1] < posB:
+        elif not o2 and ispan[1] < posB:
             return False
 
         else:
@@ -1038,11 +1052,11 @@ def sv_genotype(vcf_file,
 
                 # infer the strands from the alt allele
                 if var.alt[-1] == '[' or var.alt[-1] == ']':
-                    o1 = '+'
-                else: o1 = '-'
+                    o1 = True
+                else: o1 = False
                 if var2.alt[-1] == '[' or var2.alt[-1] == ']':
-                    o2 = '+'
-                else: o2 = '-'
+                    o2 = True
+                else: o2 = False
             else:
                 breakend_dict[var.var_id] = var
                 continue
@@ -1055,15 +1069,15 @@ def sv_genotype(vcf_file,
             ciA = [posA + ci for ci in map(int, var.info['CIPOS'].split(','))]
             ciB = [posB + ci for ci in map(int, var.info['CIEND'].split(','))]
             if svtype == 'DEL':
-                o1, o2 =  '+', '-'
+                o1, o2 =  True, False
             elif svtype == 'DUP':
-                o1, o2 =  '-', '+'
+                o1, o2 =  False, True
             elif svtype == 'INV':
-                o1, o2 =  '+', '+'
+                o1, o2 = True, True
 
         # increment the negative strand values (note position in VCF should be the base immediately left of the breakpoint junction)
-        if o1 == '-': posA += 1
-        if o2 == '-': posB += 1
+        if not o1: posA += 1
+        if not o2: posB += 1
         # if debug: print posA, posB
 
         var_length = None
@@ -1082,28 +1096,43 @@ def sv_genotype(vcf_file,
             ref_seq, alt_seq = 0, 0
 
             for fragment in read_batch.values():
-                # tally spanning reference pairs
                 ref_ci = [-100,100]
 
-                if (fragment.is_pair_straddle(chromA, posA, ref_ci,
-                                              chromA, posA, ref_ci,
-                                              '+', '-',
-                                              min_aligned)
-                    or fragment.is_pair_straddle(chromB, posB, ref_ci,
-                                                 chromB, posB, ref_ci,
-                                                 '+', '-',
-                                                 min_aligned)):
-                    p_conc = fragment.p_concordant(var_length)
-                    if p_conc is not None:
-                        p_reference = 1
-                        p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                        ref_span += p_reference
+
+                # 1. Assess splitters
+                for read_thing in fragment.group_reads().values():
+                    if len(read_thing) == 2:
+                        if (is_split(read_thing[0], read_thing[1],
+                                    chromA, posA,
+                                    chromB, posB,
+                                    o1, o2,
+                                    split_slop,
+                                    min_aligned)
+                            or is_split(read_thing[1], read_thing[0],
+                                        chromA, posA,
+                                        chromB, posB,
+                                        o1, o2,
+                                        split_slop,
+                                        min_aligned)):
+                            alt_seq += prob_mapq(read_thing[0]) * prob_mapq(read_thing[1])
+
+                    else:
+                        read = read_thing[0]
+
+                        # get ref overlaps
+                        ref_overlap_A = read_overlaps(read, chromA, posA, min_aligned) # min_aligned + split_slop?
+                        ref_overlap_B = read_overlaps(read, chromB, posB, min_aligned)
+                        if ref_overlap_A or ref_overlap_B:
+                            ref_seq += prob_mapq(read)
+
+
 
                 # tally spanning alternate pairs
                 alt_straddle = fragment.is_pair_straddle(chromA, posA, ref_ci,
                                                          chromB, posB, ref_ci,
                                                          o1, o2,
                                                          min_aligned)
+
 
                 # check both sides if inversion (perhaps should do this for BND as well?)
                 if svtype in ('INV'):
@@ -1124,31 +1153,24 @@ def sv_genotype(vcf_file,
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                         alt_span += p_alt
 
-                # tally reference sequences
-                for read_thing in fragment.group_reads().values():
-                    if len(read_thing) == 2:
-                        if (is_split(read_thing[0], read_thing[1],
-                                    chromA, posA,
-                                    chromB, posB,
-                                    o1, o2,
-                                    split_slop,
-                                    min_aligned)
-                            or is_split(read_thing[1], read_thing[0],
-                                        chromA, posA,
-                                        chromB, posB,
-                                        o1, o2,
-                                        split_slop,
-                                        min_aligned)):
-                            alt_seq += prob_mapq(read_thing[0]) * prob_mapq(read_thing[1])
 
-                    else:
-                        read = read_thing[0]        
-                         
-                        # get ref overlaps
-                        ref_overlap_A = read_overlaps(read, chromA, posA, min_aligned) # min_aligned + split_slop?
-                        ref_overlap_B = read_overlaps(read, chromB, posB, min_aligned)
-                        if ref_overlap_A or ref_overlap_B:
-                            ref_seq += prob_mapq(read)
+                # tally spanning reference pairs
+
+                ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ci,
+                                                           chromA, posA, ref_ci,
+                                                           '+', '-',
+                                                           min_aligned)
+                ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ci,
+                                                           chromB, posB, ref_ci,
+                                                           '+', '-',
+                                                 min_aligned)
+
+                if ref_straddle_A or ref_straddle_B:
+                    p_conc = fragment.p_concordant(var_length)
+                    if p_conc is not None:
+                        p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
+                        ref_span += p_reference
+
 
             if debug:
                 print '--------------------------'
