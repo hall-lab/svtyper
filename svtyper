@@ -285,16 +285,14 @@ def write_read(read, bam, written_reads):
     read.seq = "*"
     read.qual = "*"
 
-    # read_hash = read.__str__()
-    # read_hash = read.tostring()
-    read_hash = (read.qname, read.flag, read.cigarstring)
+    read_hash = (read.query_name, read.flag, read.cigarstring)
 
     if bam is None:
         return written_reads
     if read_hash in written_reads:
         return written_reads
     else:
-        # print read.qname, read.flag
+        # print read.query_name, read.flag
         # print read_hash
         # print written_reads
         
@@ -757,13 +755,9 @@ def is_split(readA, readB,
     else:
         return True
 
+# read is neither secondary nor supplementary
 def is_primary(read):
-    # read is neither secondary nor supplementary
     return (not read.is_supplementary and not read.is_secondary)
-    # if legacy:
-    #     return not read.is_secondary
-    # else:
-    #     return not read.flag & 2048 == 2048
 
 # get the non-phred-scaled mapq of a read
 def prob_mapq(read):
@@ -796,7 +790,7 @@ class SamFragment(object):
     def group_reads(self):
         read_dict = {}
         for read in self.primary_reads + self.auxil_reads:
-            read_sided = (read.qname, read.is_read1)
+            read_sided = (read.query_name, read.is_read1)
             if read_sided in read_dict:
                 read_dict[read_sided].append(read)
             else:
@@ -804,11 +798,12 @@ class SamFragment(object):
         return read_dict
 
     def add_read(self, read):
-        read_id = "%s,%s,%s" % (read.qname, read.flag, read.cigarstring)
-        if read_id in self.read_set:
+        # ensure we don't add the same read twice
+        read_hash = read.__hash__()
+        if read_hash in self.read_set:
             return
         else:
-            self.read_set.add(read_id)
+            self.read_set.add(read_hash)
         
         if is_primary(read):
             self.primary_reads.append(read)
@@ -854,6 +849,7 @@ class SamFragment(object):
             return False
         
         # check chromosome matching
+        # Note: this step is kind of slow
         elif self.readA.reference_name != chromA:
             return False
         elif self.readB.reference_name != chromB:
@@ -914,7 +910,7 @@ def gather_reads(sample,
                  fragment_dict):
 
     # the distance to the left and right of the breakpoint to scan
-    # (max of mean + 3 standard devs over all of a sample's libraries)
+    # (max of mean + z standard devs over all of a sample's libraries)
     fetch_flank = sample.get_fetch_flank(z)
     chrom_length = sample.bam.lengths[sample.bam.gettid(chrom)]
 
@@ -925,13 +921,13 @@ def gather_reads(sample,
             or lib not in sample.active_libs):
             continue
 
-        read.seq = "*"
-        read.qual = "*"
+        # read.query_sequence = "*"
+        # read.query_qualities = "*"
 
-        if read.qname in fragment_dict:
-            fragment_dict[read.qname].add_read(read)
+        if read.query_name in fragment_dict:
+            fragment_dict[read.query_name].add_read(read)
         else:
-            fragment_dict[read.qname] = SamFragment(read, lib)
+            fragment_dict[read.query_name] = SamFragment(read, lib)
 
     return fragment_dict
 
@@ -1082,8 +1078,6 @@ def sv_genotype(vcf_file,
             read_batch = gather_reads(sample, chromA, posA, ciA, z, read_batch)
             read_batch = gather_reads(sample, chromB, posB, ciB, z, read_batch)
             
-            # print read_batch
-
             ref_span, alt_span = 0, 0
             ref_seq, alt_seq = 0, 0
 
@@ -1091,18 +1085,17 @@ def sv_genotype(vcf_file,
                 # tally spanning reference pairs
                 ref_ci = [-100,100]
 
-                ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ci,
-                                                           chromA, posA, ref_ci,
-                                                           '+', '-',
-                                                           min_aligned)
-                ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ci,
-                                                           chromB, posB, ref_ci,
-                                                           '+', '-',
-                                                           min_aligned)
-                if ref_straddle_A or ref_straddle_B:
-                    # print fragment.readA.qname, fragment.ispan
+                if (fragment.is_pair_straddle(chromA, posA, ref_ci,
+                                              chromA, posA, ref_ci,
+                                              '+', '-',
+                                              min_aligned)
+                    or fragment.is_pair_straddle(chromB, posB, ref_ci,
+                                                 chromB, posB, ref_ci,
+                                                 '+', '-',
+                                                 min_aligned)):
                     p_conc = fragment.p_concordant(var_length)
                     if p_conc is not None:
+                        p_reference = 1
                         p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                         ref_span += p_reference
 
@@ -1148,7 +1141,6 @@ def sv_genotype(vcf_file,
                                         min_aligned)):
                             alt_seq += max(prob_mapq(read_thing[0]), prob_mapq(read_thing[1]))
 
-                        # do I have to flip the reads and do it again?
                     else:
                         read = read_thing[0]        
                          
