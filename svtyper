@@ -1159,13 +1159,7 @@ def sv_genotype(bam_string,
 
                 # 1. Assess splitters
                 for read in fragment.primary_reads + fragment.auxil_reads:
-                    # # print read.query_alignment_start, read.query_alignment_end
-                    # print 
-                    # print 'my', get_left_clip(read), get_right_clip(read)
-                    # query_alignment_length = fragment.lib.read_length - get_left_clip(read) - get_right_clip(read)
-                    # print query_alignment_length
-                    # print read.cigartuples
-
+                    # determine whether read is clipped at start or end of alignment
                     left_clip = get_left_clip(read)
                     right_clip = get_right_clip(read)
                     query_alignment_length = fragment.lib.read_length - left_clip - right_clip
@@ -1175,13 +1169,6 @@ def sv_genotype(bam_string,
 
                     if query_alignment_length < min_aligned:
                         continue
-
-                    if ((read.reference_start <= posA - min_aligned / 2
-                         and read.reference_end >= posA + min_aligned / 2)
-                        or (read.reference_start <= posB - min_aligned / 2
-                            and read.reference_end >= posB + min_aligned / 2)):
-                        is_ref = True
-
 
                     if right_clip > min_aligned:
                         if ((o1
@@ -1202,7 +1189,12 @@ def sv_genotype(bam_string,
                              and read.reference_start >= posB - split_slop
                              and read.reference_start <= posB + split_slop)):
                             is_split = True
-                
+
+                    elif ((read.reference_start <= posA - min_aligned / 2
+                           and read.reference_end >= posA + min_aligned / 2)
+                          or (read.reference_start <= posB - min_aligned / 2
+                              and read.reference_end >= posB + min_aligned / 2)):
+                        is_ref = True
 
                     if is_split:
                         p_alt = prob_mapq(read)
@@ -1210,7 +1202,7 @@ def sv_genotype(bam_string,
                     
                     if is_ref:
                         p_reference = prob_mapq(read)
-                        ref_seq += p_reference
+                        ref_seq += p_reference / 2
                     
                 # tally spanning alternate pairs
                 alt_straddle = fragment.is_pair_straddle(chromA, posA, ref_ci,
@@ -1235,11 +1227,11 @@ def sv_genotype(bam_string,
                             p_alt = (1 - p_conc) * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             alt_span += p_alt
 
-                            # since an alt straddler is by definition also a reference straddler,
-                            # we can bail out early here to save some time
-                            p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                            ref_span += p_reference
-                            continue
+                            # # since an alt straddler is by definition also a reference straddler,
+                            # # we can bail out early here to save some time
+                            # p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
+                            # ref_span += p_reference
+                            # continue
                     else:
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                         alt_span += p_alt
@@ -1253,13 +1245,14 @@ def sv_genotype(bam_string,
                 ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ci,
                                                            chromB, posB, ref_ci,
                                                            True, False,
-                                                 min_aligned)
-
+                                                           min_aligned)
+                
                 if ref_straddle_A or ref_straddle_B:
+                    # print fragment.get_ispan(min_aligned), ref_straddle_A, ref_straddle_B, fragment.readA.query_name
                     p_conc = fragment.p_concordant(var_length)
                     if p_conc is not None:
                         p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                        ref_span += p_reference
+                        ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
 
 
             if debug:
@@ -1269,9 +1262,8 @@ def sv_genotype(bam_string,
                 print 'ref_seq:', ref_seq
                 print 'alt_seq:', alt_seq
 
-            continue
-
             if ref_seq + alt_seq + ref_span + alt_span > 0:
+
                 # get bayesian classifier
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
