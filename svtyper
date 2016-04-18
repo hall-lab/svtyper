@@ -933,16 +933,7 @@ class SamFragment(object):
 
         else:
             return True
-
-    def is_sequence_straddle(self,
-                             chromA, posA, ciA,
-                             chromB, posB, ciB,
-                             o1, o2):
-        for read in self.primary_reads + self.auxil_reads:
-            print read
-            # split_read = self.SplitRead(read)
-        return
-
+    
     # calculate the probability that a read pair is concordant at a breakpoint,
     # given the putative variant size and insert distribution of the library.
     def p_concordant(self, var_length=None):
@@ -1180,9 +1171,17 @@ def sv_genotype(bam_string,
                     query_alignment_length = fragment.lib.read_length - left_clip - right_clip
                     
                     is_split = False
+                    is_ref = False
 
                     if query_alignment_length < min_aligned:
                         continue
+
+                    if ((read.reference_start <= posA - min_aligned / 2
+                         and read.reference_end >= posA + min_aligned / 2)
+                        or (read.reference_start <= posB - min_aligned / 2
+                            and read.reference_end >= posB + min_aligned / 2)):
+                        is_ref = True
+
 
                     if right_clip > min_aligned:
                         if ((o1
@@ -1203,11 +1202,15 @@ def sv_genotype(bam_string,
                              and read.reference_start >= posB - split_slop
                              and read.reference_start <= posB + split_slop)):
                             is_split = True
-
+                
 
                     if is_split:
                         p_alt = prob_mapq(read)
                         alt_seq += p_alt
+                    
+                    if is_ref:
+                        p_reference = prob_mapq(read)
+                        ref_seq += p_reference
                     
                 # tally spanning alternate pairs
                 alt_straddle = fragment.is_pair_straddle(chromA, posA, ref_ci,
@@ -1231,20 +1234,25 @@ def sv_genotype(bam_string,
                         if p_conc is not None:
                             p_alt = (1 - p_conc) * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             alt_span += p_alt
+
+                            # since an alt straddler is by definition also a reference straddler,
+                            # we can bail out early here to save some time
+                            p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
+                            ref_span += p_reference
+                            continue
                     else:
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                         alt_span += p_alt
 
 
                 # tally spanning reference pairs
-
                 ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ci,
                                                            chromA, posA, ref_ci,
-                                                           '+', '-',
+                                                           True, False,
                                                            min_aligned)
                 ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ci,
                                                            chromB, posB, ref_ci,
-                                                           '+', '-',
+                                                           True, False,
                                                  min_aligned)
 
                 if ref_straddle_A or ref_straddle_B:
