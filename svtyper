@@ -1234,10 +1234,16 @@ def sv_genotype(bam_string,
                             # continue
                     else:
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                        alt_span += p_alt
 
+                        # scale the inversion evidence to account for reciprocal
+                        if svtype in ('INV'):
+                            alt_span += p_alt / 2
+                        else:
+                            alt_span += p_alt
 
                 # tally spanning reference pairs
+                # NOTE: perhaps amend this for inversions. need to prevent events that span
+                # an entire small inversion from being counted as reference
                 ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ci,
                                                            chromA, posA, ref_ci,
                                                            True, False,
