@@ -1088,6 +1088,9 @@ def sv_genotype(bam_string,
                 if var2.alt[-1] == '[' or var2.alt[-1] == ']':
                     o2 = True
                 else: o2 = False
+                
+                # remove the BND from the breakend_dict
+                del breakend_dict[var.var_id]
             else:
                 breakend_dict[var.var_id] = var
                 continue
