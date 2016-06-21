@@ -710,19 +710,79 @@ def write_sample_json(sample_list, lib_info_dump):
     json.dump(lib_info, lib_info_dump, indent=4)
     lib_info_dump.close()
 
-def min_non_overlap(splitA, splitB):
-    if splitA.reference_id != splitB.reference_id:
-        return 1000000000
+def get_query_pos_from_cigar(cigar, strand):
+    query_start = 0
+    query_end = 0
+    query_length = 0
 
-    else:
-        # this is how we've computed non-overlap in the past, but
-        # it assumes that splitters are clipped on the right
-        # and left side respectively. So it won't work for '--' inversions, for example
-        overlap = min(splitA.reference_end, splitB.reference_end) - max(splitA.reference_start, splitB.reference_start)
-        nonOverlapA = splitA.reference_end - splitA.reference_start - overlap
-        nonOverlapB = splitB.reference_end - splitB.reference_start - overlap
+    keys = re.findall('[MIDNSHPX=]+', cigar)
+    nums = map(int, re.findall('[^MIDNSHPX=]+', cigar))
+    
+    for i in xrange(len(keys)):
+        if strand: # positive strand
+            k = keys[i]
+            n = nums[i]
+        else: # negative strand
+            k = keys[len(keys) - i - 1]
+            n = nums[len(keys) - i - 1]
 
-        return min(nonOverlapA, nonOverlapB)
+        if k in ('H', 'S'):
+            if i == 0:
+                query_start += n
+                query_end += n
+                query_length += n
+            else:
+                query_length += n
+        elif k in ('M', 'I', '=', 'X'):
+            query_end += n
+            query_length +=n
+
+    d = query_pos(query_start, query_end, query_length);
+    return d
+
+class query_pos (object):
+    """
+    struct to store the start and end positions of query CIGAR operations
+    """
+    def __init__(self, query_start, query_end, query_length):
+        self.query_start = int(query_start)
+        self.query_end = int(query_end)
+        self.query_length  = int(query_length)
+
+def get_query_overlap(s1, e1, s2, e2):
+    o = 1 + min(e1, e2) - max(s1, s2)
+    return max(0, o)
+
+def non_overlap(read):
+    sa_list = read.get_tag('SA').rstrip(';').split(';')
+    if len(sa_list) > 1:
+        return None
+
+    sa = sa_list[0].split(',')
+    mate_cigar = sa[3]
+
+    # get aligned query positions
+    read_query_pos = get_query_pos_from_cigar(read.cigarstring, not read.is_reverse)
+    mate_query_pos = get_query_pos_from_cigar(mate_cigar, sa[2] == '+')
+
+    # get overlap of aligned query positions
+    overlap = get_query_overlap(read_query_pos.query_start,
+                                read_query_pos.query_end,
+                                mate_query_pos.query_start,
+                                mate_query_pos.query_end)
+
+    # print 'read cig', read.cigarstring
+    # print 'mate cig', mate_cigar
+    # print 'olap', overlap
+
+    # get minimum non-overlap
+    read_non_overlap = 1 + read_query_pos.query_end - read_query_pos.query_start - overlap
+    mate_non_overlap = 1 + mate_query_pos.query_end - mate_query_pos.query_start - overlap
+    # print 'read no', read_non_overlap
+    # print 'mate no', mate_non_overlap
+    mno = min(read_non_overlap, mate_non_overlap)
+
+    return mno
 
 def read_overlaps(read, chrom, pos, min_aligned):
     if read.reference_name != chrom:
@@ -833,10 +893,7 @@ def prob_mapq(read):
 
 # flip the strand
 def flip_strand(strand):
-    if strand == '+':
-        return '-'
-    elif strand == '-':
-        return '+'
+    return not strand
 
 class SamFragment(object):
     def __init__(self, read, lib):
@@ -901,7 +958,8 @@ class SamFragment(object):
                          chromA, posA, ciA,
                          chromB, posB, ciB,
                          o1, o2,
-                         min_aligned):
+                         min_aligned,
+                         lib):
         if self.num_primary != 2:
             return False
         
@@ -910,7 +968,7 @@ class SamFragment(object):
             return False
         elif self.readB.is_reverse == o2:
             return False
-        
+
         # check chromosome matching
         # Note: this step is kind of slow
         elif self.readA.reference_name != chromA:
@@ -922,14 +980,24 @@ class SamFragment(object):
         ispan = self.get_ispan(min_aligned)
 
         # check orientations and positions
-        if o1 and ispan[0] > posA:
+        flank = lib.mean + lib.sd * 3
+        if o1 and (ispan[0] > ciA[1] or ispan[0] < ciA[0] - flank):
             return False
-        elif not o1 and ispan[0] < posA:
+        elif not o1 and (ispan[0] < ciA[0] or ispan[0] > ciA[1] + flank):
             return False
-        elif o2 and ispan[1] > posB:
+        elif o2 and (ispan[1] > ciB[1] or ispan[1] < ciB[0] - flank):
             return False
-        elif not o2 and ispan[1] < posB:
+        elif not o2 and (ispan[1] < ciB[0] or ispan[1] > ciB[1] + flank):
             return False
+
+        # if o1 and (ispan[0] > posA + ciA[1] or ispan[0] < posA + ciA[0] - flank):
+        #     return False
+        # elif not o1 and (ispan[0] < posA + ciA[0] or ispan[0] > posA + ciA[1] + flank):
+        #     return False
+        # elif o2 and (ispan[1] > posB + ciB[1] or ispan[1] < posB + ciB[0] - flank):
+        #     return False
+        # elif not o2 and (ispan[1] < posB + ciB[0] or ispan[1] > posB + ciB[1] + flank):
+        #     return False
 
         else:
             return True
@@ -1156,12 +1224,21 @@ def sv_genotype(bam_string,
             ref_span, alt_span = 0, 0
             ref_seq, alt_seq = 0, 0
 
+
+            min_clip = min_aligned / 2
+            min_clip = 0
+            min_non_overlap = 20
+            # ref_ci = 0
+            # ref_ciA = [posA - ref_ci, posA + ref_ci]
+            # ref_ciB = [posB - ref_ci, posB + ref_ci]
+
+            ref_ciA = ciA
+            ref_ciB = ciB
+
             for fragment in read_batch.values():
-                ref_ci = [-100,100]
-
-
                 # 1. Assess splitters
                 for read in fragment.primary_reads + fragment.auxil_reads:
+
                     # determine whether read is clipped at start or end of alignment
                     left_clip = get_left_clip(read)
                     right_clip = get_right_clip(read)
@@ -1170,57 +1247,85 @@ def sv_genotype(bam_string,
                     is_split = False
                     is_ref = False
 
-                    if query_alignment_length < min_aligned:
-                        continue
-
-                    if right_clip > min_aligned:
-                        if ((o1
-                             and read.reference_end >= posA - split_slop
-                             and read.reference_end <= posA + split_slop)
-                            or
-                            (o2
-                             and read.reference_end >= posB - split_slop
-                             and read.reference_end <= posB + split_slop)):
-                            is_split = True
-                            
-                    elif left_clip > min_aligned:
-                        if ((not o1
-                             and read.reference_start >= posA - split_slop
-                             and read.reference_start <= posA + split_slop)
-                            or
-                            (not o2
-                             and read.reference_start >= posB - split_slop
-                             and read.reference_start <= posB + split_slop)):
-                            is_split = True
-
-                    elif ((read.reference_start <= posA - min_aligned / 2
+                    if ((read.reference_start <= posA - min_aligned / 2
                            and read.reference_end >= posA + min_aligned / 2)
                           or (read.reference_start <= posB - min_aligned / 2
                               and read.reference_end >= posB + min_aligned / 2)):
                         is_ref = True
 
+
+                    # try:
+                    #     print non_overlap(read)
+                    # except:
+                    #     print 'none'
+                    if read.has_tag('SA'):
+                        # print non_overlap(read), read
+
+                        if (query_alignment_length < min_aligned
+                            or non_overlap(read) < min_non_overlap):
+                            continue
+
+                        # if right_clip > min_aligned:
+                        if right_clip >= min_clip:
+                            if ((o1
+                                 and read.reference_end >= posA - split_slop
+                                 and read.reference_end <= posA + split_slop)
+                                or
+                                (o2
+                                 and read.reference_end >= posB - split_slop
+                                 and read.reference_end <= posB + split_slop)):
+                                # print 'A'
+                                is_split = True
+
+                        # if left_clip > min_aligned:
+                        if left_clip >= min_clip:
+                            if ((not o1
+                                 and read.reference_start >= posA - split_slop
+                                 and read.reference_start <= posA + split_slop)
+                                or
+                                (not o2
+                                 and read.reference_start >= posB - split_slop
+                                 and read.reference_start <= posB + split_slop)):
+                                # print 'B'
+                                is_split = True
+
+                    # if ((read.reference_start <= posA - min_aligned / 2
+                    #        and read.reference_end >= posA + min_aligned / 2)
+                    #       or (read.reference_start <= posB - min_aligned / 2
+                    #           and read.reference_end >= posB + min_aligned / 2)):
+                    #     is_ref = True
+
                     if is_split:
                         p_alt = prob_mapq(read)
                         alt_seq += p_alt
+                        # print non_overlap(read), read
                     
                     if is_ref:
                         p_reference = prob_mapq(read)
                         ref_seq += p_reference / 2
-                    
+                
                 # tally spanning alternate pairs
-                alt_straddle = fragment.is_pair_straddle(chromA, posA, ref_ci,
-                                                         chromB, posB, ref_ci,
-                                                         o1, o2,
-                                                         min_aligned)
+                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd:
+                    alt_straddle = False
+                else:
+                    alt_straddle = fragment.is_pair_straddle(chromA, posA, ciA,
+                                                             chromB, posB, ciB,
+                                                             o1, o2,
+                                                             min_aligned,
+                                                             fragment.lib)
 
+                # # print "v", o1, o2
+                # if fragment.readA is not None and fragment.readB is not None:
+                #     print "o", fragment.readA.is_reverse, fragment.readB.is_reverse
 
                 # check both sides if inversion (perhaps should do this for BND as well?)
                 if svtype in ('INV'):
-                    alt_straddle_reciprocal = fragment.is_pair_straddle(chromA, posA, ref_ci,
-                                                                        chromB, posB, ref_ci,
+                    alt_straddle_reciprocal = fragment.is_pair_straddle(chromA, posA, ciA,
+                                                                        chromB, posB, ciB,
                                                                         flip_strand(o1),
                                                                         flip_strand(o2),
-                                                                        min_aligned)
+                                                                        min_aligned,
+                                                                        fragment.lib)
                 else: alt_straddle_reciprocal = False
 
                 if alt_straddle or alt_straddle_reciprocal:
@@ -1238,23 +1343,29 @@ def sv_genotype(bam_string,
                     else:
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
 
-                        # scale the inversion evidence to account for reciprocal
-                        if svtype in ('INV'):
-                            alt_span += p_alt / 2
-                        else:
-                            alt_span += p_alt
+                        # print p_alt, fragment.readA
+
+                        alt_span += p_alt
+
+                        # # scale the inversion evidence to account for reciprocal
+                        # if svtype in ('INV'):
+                        #     alt_span += p_alt / 2
+                        # else:
+                        #     alt_span += p_alt
 
                 # tally spanning reference pairs
                 # NOTE: perhaps amend this for inversions. need to prevent events that span
                 # an entire small inversion from being counted as reference
-                ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ci,
-                                                           chromA, posA, ref_ci,
+                ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ciA,
+                                                           chromA, posA, ref_ciA,
                                                            True, False,
-                                                           min_aligned)
-                ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ci,
-                                                           chromB, posB, ref_ci,
+                                                           min_aligned,
+                                                           fragment.lib)
+                ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ciB,
+                                                           chromB, posB, ref_ciB,
                                                            True, False,
-                                                           min_aligned)
+                                                           min_aligned,
+                                                           fragment.lib)
                 
                 if ref_straddle_A or ref_straddle_B:
                     # print fragment.get_ispan(min_aligned), ref_straddle_A, ref_straddle_B, fragment.readA.query_name
@@ -1263,6 +1374,11 @@ def sv_genotype(bam_string,
                         p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                         ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
 
+                        # if (ref_straddle_A + ref_straddle_B) * p_reference / 2 > 0.1:
+                        #     print p_reference
+                        #     print fragment.readA
+                        #     print fragment.readB
+
 
             if debug:
                 print '--------------------------'
@@ -1270,6 +1386,14 @@ def sv_genotype(bam_string,
                 print 'alt_span:', alt_span
                 print 'ref_seq:', ref_seq
                 print 'alt_seq:', alt_seq
+
+            if alt_seq < 0.5 and alt_span >= 1:
+                alt_seq = 0
+                ref_seq = 0
+
+            if alt_span < 0.5 and alt_seq >= 1:
+                alt_span = 0
+                ref_span = 0
 
             if ref_seq + alt_seq + ref_span + alt_span > 0:
 
