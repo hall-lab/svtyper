@@ -51,6 +51,10 @@ description: Compute genotype of structural variants based on breakpoint depth")
     # send back the user input
     return args
 
+# ==================================================
+# VCF parsing tools
+# ==================================================
+
 class Vcf(object):
     def __init__(self):
         self.file_format = 'VCFv4.2'
@@ -283,6 +287,10 @@ class Genotype(object):
                 g_list.append('.')
         return ':'.join(map(str,g_list))
 
+# ==================================================
+# BAM and JSON output
+# ==================================================
+
 # write read to BAM file, checking whether read is already written
 def write_read(read, bam, written_reads):
     read.seq = "*"
@@ -302,6 +310,40 @@ def write_read(read, bam, written_reads):
         bam.write(read)
         written_reads.add(read_hash)
         return written_reads
+
+# dump the sample and library info to a file
+def write_sample_json(sample_list, lib_info_dump):
+    lib_info = {}
+    for sample in sample_list:
+        s = {}
+        s['sample_name'] = sample.name
+        s['bam'] = sample.bam.filename
+        s['libraryArray'] = []
+        s['mapped'] = sample.bam.mapped
+        s['unmapped'] = sample.bam.unmapped
+
+        for lib in sample.lib_dict.values():
+            l = {}
+            l['library_name'] = lib.name
+            l['readgroups'] = lib.readgroups
+            l['read_length'] = lib.read_length
+            l['mean'] = lib.mean
+            l['sd'] = lib.sd
+            l['prevalence'] = lib.prevalence
+            l['histogram'] = lib.hist
+
+            s['libraryArray'].append(l)
+
+        lib_info[sample.name] = s
+
+    # print the json file
+    json.dump(lib_info, lib_info_dump, indent=4)
+    lib_info_dump.close()
+
+
+# ==================================================
+# Statistical tools
+# ==================================================
 
 # efficient combinatorial function to handle extremely large numbers
 def log_choose(n, k):
@@ -416,6 +458,10 @@ def stdev(myCounter):
     myVariance = float(sumVar) / numRecords
     stdev = myVariance**(0.5)
     return stdev
+
+# ==================================================
+# Library parsing
+# ==================================================
 
 # holds a library's insert size and read length information
 class Library(object):
@@ -581,6 +627,9 @@ class Library(object):
             dens[i] = float(self.hist[i])/countRecords(self.hist)
         self.dens = dens
 
+# ==================================================
+# Sample parsing
+# ==================================================
 
 # holds each sample's BAM and library information
 class Sample(object):
@@ -648,10 +697,6 @@ class Sample(object):
         rg_to_lib = {}
         lib_dict = {}
 
-        # self.lib_dict = dict()
-        # self.active_libs = []
-        # self.rg_to_lib = dict()
-
         for r in bam.header['RG']:
             try:
                 lib_name=r['LB']
@@ -679,42 +724,10 @@ class Sample(object):
     def get_lib(self, readgroup):
         return self.rg_to_lib[readgroup]
 
-# dump the sample and library info to a file
-def write_sample_json(sample_list, lib_info_dump):
-    lib_info = {}
-    for sample in sample_list:
-        s = {}
-        s['sample_name'] = sample.name
-        s['bam'] = sample.bam.filename
-        s['libraryArray'] = []
-        s['mapped'] = sample.bam.mapped
-        s['unmapped'] = sample.bam.unmapped
-
-        for lib in sample.lib_dict.values():
-            l = {}
-            l['library_name'] = lib.name
-            l['readgroups'] = lib.readgroups
-            l['read_length'] = lib.read_length
-            l['mean'] = lib.mean
-            l['sd'] = lib.sd
-            l['prevalence'] = lib.prevalence
-            l['histogram'] = lib.hist
-
-            s['libraryArray'].append(l)
-
-        lib_info[sample.name] = s
-
-    # print the json file
-    json.dump(lib_info, lib_info_dump, indent=4)
-    lib_info_dump.close()
-
-# read is neither secondary nor supplementary
-def is_primary(read):
-    return (not read.is_supplementary and not read.is_secondary)
-
-# get the non-phred-scaled mapq of a read
-def prob_mapq(read):
-    return 1 - 10 ** (-read.mapq / 10.0)
+# ==================================================
+# Class for SAM fragment, containing all alignments
+# from a single molecule
+# ==================================================
 
 class SamFragment(object):
     def __init__(self, read, lib):
@@ -724,7 +737,6 @@ class SamFragment(object):
         self.split_reads = []
         self.read_set = set()
         self.num_primary = 0
-        # self.num_auxil = 0
 
         self.readA = None
         self.readB = None
@@ -842,6 +854,13 @@ class SamFragment(object):
             p = None
         return p
 
+# ==================================================
+# Class for a split-read, containing all alignments
+# from a single chimeric read
+# ==================================================
+
+# each SplitRead object has a left and a right SplitPiece
+# (reads with more than 2 split alignments are discarded)
 class SplitRead(object):
     def __init__(self, read, lib):
         self.read = read
@@ -850,6 +869,7 @@ class SplitRead(object):
         self.left = None
         self.right = None
 
+    # the left (or right) alignemnt
     class SplitPiece(object):
         def __init__(self,
                      chrom,
@@ -868,6 +888,7 @@ class SplitRead(object):
         def set_reference_end(self, reference_end):
             self.reference_end = reference_end
 
+    # check if passes QC, and populate with necessary info
     def is_valid(self,
                  min_non_overlap = 20,
                  min_indel = 50,
@@ -953,6 +974,10 @@ class SplitRead(object):
 
         return non_overlap
 
+# ==================================================
+# Miscellaneous methods for manipulating SAM alignments
+# ==================================================
+
 # adapted from Matt Shirley (http://coderscrowd.com/app/public/codes/view/171)
 def cigarstring_to_tuple(cigarstring):
     cigar_dict = {'M':0, 'I':1,'D':2,'N':3, 'S':4, 'H':5, 'P':6, '=':7, 'X':8}
@@ -982,6 +1007,7 @@ def get_reference_end_from_cigar(reference_start, cigar):
             reference_end += n
     return reference_end
 
+# get the positions of the query that are aligned
 def get_query_pos_from_cigar(cigar, is_reverse):
     query_start = 0
     query_end = 0
@@ -1008,6 +1034,7 @@ def get_query_pos_from_cigar(cigar, is_reverse):
     d = QueryPos(query_start, query_end, query_length);
     return d
 
+# structure to hold query position information
 class QueryPos (object):
     """
     struct to store the start and end positions of query CIGAR operations
@@ -1021,6 +1048,15 @@ def get_query_overlap(s1, e1, s2, e2):
     o = 1 + min(e1, e2) - max(s1, s2)
     return max(0, o)
 
+# read is neither secondary nor supplementary
+def is_primary(read):
+    return (not read.is_supplementary and not read.is_secondary)
+
+# get the non-phred-scaled mapq of a read
+def prob_mapq(read):
+    return 1 - 10 ** (-read.mapq / 10.0)
+
+# method to grab reads from region of interest in BAM file
 def gather_reads(sample,
                  chrom, pos, ci,
                  z,
@@ -1050,7 +1086,10 @@ def gather_reads(sample,
 
     return fragment_dict
 
-# primary function
+# ==================================================
+# Genotyping function
+# ==================================================
+
 def sv_genotype(bam_string,
                 vcf_file,
                 vcf_out,
@@ -1066,7 +1105,6 @@ def sv_genotype(bam_string,
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
-
     min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
 
     # parse lib_info_file JSON
@@ -1131,6 +1169,7 @@ def sv_genotype(bam_string,
 
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
+        var_length = None # var_length should be None except for deletions
 
         # genotype generic breakends
         svtype = var.get_info('SVTYPE')
@@ -1155,6 +1194,7 @@ def sv_genotype(bam_string,
                 else: o2_is_reverse = True
                 
                 # remove the BND from the breakend_dict
+                # to free up memory
                 del breakend_dict[var.var_id]
             else:
                 breakend_dict[var.var_id] = var
@@ -1168,6 +1208,7 @@ def sv_genotype(bam_string,
             ciA = map(int, var.info['CIPOS'].split(','))
             ciB = map(int, var.info['CIEND'].split(','))
             if svtype == 'DEL':
+                var_length = posB - posA
                 o1_is_reverse, o2_is_reverse =  False, True
             elif svtype == 'DUP':
                 o1_is_reverse, o2_is_reverse =  True, False
@@ -1178,55 +1219,18 @@ def sv_genotype(bam_string,
         if o1_is_reverse: posA += 1
         if o2_is_reverse: posB += 1
 
-        var_length = None
-        if svtype == 'DEL':
-            var_length = posB - posA
-
-        def clipped_strand(read):
-            # clipped on right side
-            if read.cigartuples[0][0] in (0, 7) and read.cigartuples[-1][0] in (4, 5):
-                return True
-            elif read.cigartuples[-1][0] in (0, 7) and read.cigartuples[0][0] in (4, 5):
-                return False
-            else:
-                return None
-
-
-        def get_left_clip(read):
-            clip = 0
-            for x in read.cigartuples:
-                if x[0] == 4:
-                    clip += x[1]
-                else:
-                    break
-            return clip
-
-        def get_right_clip(read):
-            clip = 0
-            for x in reversed(read.cigartuples):
-                if x[0] == 4:
-                    clip += x[1]
-                else:
-                    break
-            return clip
-
         for sample in sample_list:
+            # grab batch of reads from both sides of breakpoint
             read_batch = {}
             read_batch = gather_reads(sample, chromA, posA, ciA, z, read_batch)
             read_batch = gather_reads(sample, chromB, posB, ciB, z, read_batch)
-            
+
+            # initialize counts to zero
             ref_span, alt_span = 0, 0
             ref_seq, alt_seq = 0, 0
 
-
-            min_clip = min_aligned / 2
-            min_clip = 0
-            min_non_overlap = 20
-            min_indel_size = 50
-
             # ref_ciA = ciA
             # ref_ciB = ciB
-
             ref_ciA = [0,0]
             ref_ciB = [0,0]
 
@@ -1244,6 +1248,7 @@ def sv_genotype(bam_string,
                         p_reference = prob_mapq(read)
                         ref_seq += p_reference / 2
 
+                # get non-reference split-read support
                 for split in fragment.split_reads:
                     is_split = False
                     if ((not o1_is_reverse
@@ -1265,40 +1270,9 @@ def sv_genotype(bam_string,
                          and split.right.reference_start <= posB + split_slop)):
                         is_split = True
 
-
-
-                    # if (query_alignment_length < min_aligned
-                    #     or non_overlap(read) < min_non_overlap):
-                    #     continue
-
-                    # if right_clip > min_aligned:
-                    # if right_clip >= min_clip:
-                    #     if ((not o1_is_reverse
-                    #          and read.reference_end >= posA - split_slop
-                    #          and read.reference_end <= posA + split_slop)
-                    #         or
-                    #         (not o2_is_reverse
-                    #          and read.reference_end >= posB - split_slop
-                    #          and read.reference_end <= posB + split_slop)):
-                    #         # print 'A'
-                    #         is_split = True
-
-                    # # if left_clip > min_aligned:
-                    # if left_clip >= min_clip:
-                    #     if ((o1_is_reverse
-                    #          and read.reference_start >= posA - split_slop
-                    #          and read.reference_start <= posA + split_slop)
-                    #         or
-                    #         (o2_is_reverse
-                    #          and read.reference_start >= posB - split_slop
-                    #          and read.reference_start <= posB + split_slop)):
-                    #         # print 'B'
-                    #         is_split = True
-
                     if is_split:
                         p_alt = prob_mapq(read)
                         alt_seq += p_alt
-                        # print non_overlap(read), read
                                     
                 # tally spanning alternate pairs
                 if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd:
@@ -1318,7 +1292,8 @@ def sv_genotype(bam_string,
                                                                         not o2_is_reverse,
                                                                         min_aligned,
                                                                         fragment.lib)
-                else: alt_straddle_reciprocal = False
+                else:
+                    alt_straddle_reciprocal = False
 
                 if alt_straddle or alt_straddle_reciprocal:
                     if svtype == 'DEL':
@@ -1339,12 +1314,6 @@ def sv_genotype(bam_string,
 
                         alt_span += p_alt
 
-                        # # scale the inversion evidence to account for reciprocal
-                        # if svtype in ('INV'):
-                        #     alt_span += p_alt / 2
-                        # else:
-                        #     alt_span += p_alt
-
                 # tally spanning reference pairs
                 # NOTE: perhaps amend this for inversions. need to prevent events that span
                 # an entire small inversion from being counted as reference
@@ -1360,17 +1329,10 @@ def sv_genotype(bam_string,
                                                            fragment.lib)
                 
                 if ref_straddle_A or ref_straddle_B:
-                    # print fragment.get_ispan(min_aligned), ref_straddle_A, ref_straddle_B, fragment.readA.query_name
                     p_conc = fragment.p_concordant(var_length)
                     if p_conc is not None:
                         p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                         ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
-
-                        # if (ref_straddle_A + ref_straddle_B) * p_reference / 2 > 0.1:
-                        #     print p_reference
-                        #     print fragment.readA
-                        #     print fragment.readB
-
 
             if debug:
                 print '--------------------------'
@@ -1379,16 +1341,16 @@ def sv_genotype(bam_string,
                 print 'ref_seq:', ref_seq
                 print 'alt_seq:', alt_seq
 
+            # in the absence of evidence for a particular type, ignore the reference
+            # support for that type as well
             if alt_seq < 0.5 and alt_span >= 1:
                 alt_seq = 0
                 ref_seq = 0
-
             if alt_span < 0.5 and alt_seq >= 1:
                 alt_span = 0
                 ref_span = 0
 
             if ref_seq + alt_seq + ref_span + alt_span > 0:
-
                 # get bayesian classifier
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
@@ -1481,9 +1443,6 @@ def sv_genotype(bam_string,
 def main():
     # parse the command line args
     args = get_args()
-
-    # global legacy
-    # legacy = args.legacy
 
     # globally track the reads written to the BAM files
     global out_bam
