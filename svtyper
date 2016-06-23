@@ -27,13 +27,10 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    # parser.add_argument('-f', '--splflank', type=int, required=False, default=20, help='min number of split read query bases flanking breakpoint on either side [20]')
-    # parser.add_argument('-F', '--discflank', type=int, required=False, default=20, help='min number of discordant read query bases flanking breakpoint on either side. (should not exceed read length) [20]')
     parser.add_argument('-m', '--min_aligned', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
-    # parser.add_argument('-M', action='store_true', dest='legacy', required=False, help='split reads are flagged as secondary, not supplementary. For compatibility with legacy BWA-MEM "-M" flag')
     parser.add_argument('-l', '--lib_info', dest='lib_info_file', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
     parser.add_argument('--dump', type=str, required=False, default=None, help='file prefix to dump library info and relevant BAM reads')
@@ -1235,6 +1232,10 @@ def sv_genotype(bam_string,
             ref_ciB = [0,0]
 
             for fragment in read_batch.values():
+                # -------------------------------------
+                # Check for split-read evidence
+                # -------------------------------------
+
                 # get reference sequences
                 for read in fragment.primary_reads + fragment.auxil_reads:
                     is_ref = False
@@ -1256,14 +1257,13 @@ def sv_genotype(bam_string,
                          and split.left.reference_end <= posA + split_slop)
                         or
                         (not o2_is_reverse
-                         and split.left.reference_end >= posB - split_slop
-                         and split.left.reference_end <= posB + split_slop)):
+                         and split.right.reference_end >= posB - split_slop
+                         and split.right.reference_end <= posB + split_slop)):
                         is_split = True
 
-
                     if ((o1_is_reverse
-                         and split.right.reference_start >= posA - split_slop
-                         and split.right.reference_start <= posA + split_slop)
+                         and split.left.reference_start >= posA - split_slop
+                         and split.left.reference_start <= posA + split_slop)
                         or
                         (o2_is_reverse
                          and split.right.reference_start >= posB - split_slop
@@ -1273,6 +1273,10 @@ def sv_genotype(bam_string,
                     if is_split:
                         p_alt = prob_mapq(read)
                         alt_seq += p_alt
+
+                # -------------------------------------
+                # Check for paired-end evidence
+                # -------------------------------------
                                     
                 # tally spanning alternate pairs
                 if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd:
