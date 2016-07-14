@@ -730,7 +730,6 @@ class SamFragment(object):
     def __init__(self, read, lib):
         self.lib = lib
         self.primary_reads = []
-        self.auxil_reads = []
         self.split_reads = []
         self.read_set = set()
         self.num_primary = 0
@@ -742,16 +741,6 @@ class SamFragment(object):
 
         self.add_read(read)
 
-    def group_reads(self):
-        read_dict = {}
-        for read in self.primary_reads + self.auxil_reads:
-            read_sided = (read.query_name, read.is_read1)
-            if read_sided in read_dict:
-                read_dict[read_sided].append(read)
-            else:
-                read_dict[read_sided] = [read]
-        return read_dict
-
     def add_read(self, read):
         # ensure we don't add the same read twice
         read_hash = read.__hash__()
@@ -761,26 +750,27 @@ class SamFragment(object):
             self.read_set.add(read_hash)
         
         if is_primary(read):
+            # add the primary reads
             self.primary_reads.append(read)
             self.num_primary += 1
+
+            # make split candidate and check whether it's valid
+            split_candidate = SplitRead(read, self.lib)
+            if split_candidate.is_valid():
+                self.split_reads.append(split_candidate)
 
             # complete set of primaries
             if self.num_primary == 2:
                 self.readA, self.readB = self.primary_reads
-        else:
-            self.auxil_reads.append(read)
 
-        # add to split_reads if valid
-        split_candidate = SplitRead(read, self.lib)
-        if split_candidate.is_valid():
-            self.split_reads.append(split_candidate)
-
+    # get inner span
     def get_ispan(self, min_aligned):
         ispan1 = self.readA.reference_start + min_aligned
         ispan2 = self.readB.reference_end - min_aligned - 1
 
         return (ispan1, ispan2)
 
+    # get outer span
     def get_ospan(self):
         ospan1 = self.readA.reference_start
         ospan2 = self.readB.reference_end
@@ -860,13 +850,14 @@ class SamFragment(object):
 # (reads with more than 2 split alignments are discarded)
 class SplitRead(object):
     def __init__(self, read, lib):
+        self.query_name = read.query_name
         self.read = read
         self.lib = lib
         self.sa = None
-        self.left = None
-        self.right = None
+        self.q1 = None
+        self.q2 = None
 
-    # the left (or right) alignemnt
+    # the piece of each split alignemnt
     class SplitPiece(object):
         def __init__(self,
                      chrom,
@@ -878,6 +869,8 @@ class SplitRead(object):
             self.reference_end = None
             self.is_reverse = is_reverse
             self.cigar = cigar
+            # self.is_left_clipped = None
+            # self.is_right_clipped = None
 
             # get query positions
             self.query_pos = get_query_pos_from_cigar(self.cigar, self.is_reverse)
@@ -901,11 +894,12 @@ class SplitRead(object):
         else:
             self.sa = sa_list[0].split(',')
             mate_chrom = self.sa[0]
-            mate_pos = int(self.sa[1]) - 1 # SA tag is one-based, while sam is zero-based
+            mate_pos = int(self.sa[1]) - 1 # SA tag is one-based, while SAM is zero-based
             mate_is_reverse = self.sa[2] == '-'
             mate_cigar = cigarstring_to_tuple(self.sa[3])
 
-        # set left and right splitter
+        # set left_align and right_align splitter by position
+        # (left_align and right_align are random when on different chromosomes
         a = self.SplitPiece(self.read.reference_name,
                             self.read.reference_start,
                             self.read.is_reverse,
@@ -920,56 +914,79 @@ class SplitRead(object):
 
         if (self.read.reference_name == mate_chrom
             and self.read.pos > mate_pos):
-            self.left = b
-            self.right = a
-
+            left_align = b
+            right_align = a
         else:
-            self.left = a
-            self.right = b
+            left_align = a
+            right_align = b
 
         # check non-overlap
-        if self.non_overlap() < min_non_overlap:
+        if self.non_overlap(left_align, right_align) < min_non_overlap:
             return False
 
         # check off-diagonal distance and desert
         # only relevant when split pieces are on the same chromosome and strand
-        if (self.left.chrom == self.right.chrom
-            and self.left.is_reverse == self.right.is_reverse):
+        if (left_align.chrom == right_align.chrom
+            and left_align.is_reverse == right_align.is_reverse):
             # use end diagonal on left and start diagonal on right since
             # the start and end diags might be different if there is an
             # indel in the alignments
-            if self.left.is_reverse:
-                left_diag = get_start_diagonal(self.left)
-                right_diag = get_end_diagonal(self.right)
+            if left_align.is_reverse:
+                left_diag = get_start_diagonal(left_align)
+                right_diag = get_end_diagonal(right_align)
                 ins_size = right_diag - left_diag
             else:
-                left_diag = get_end_diagonal(self.left)
-                right_diag = get_start_diagonal(self.right)
+                left_diag = get_end_diagonal(left_align)
+                right_diag = get_start_diagonal(right_align)
                 ins_size = left_diag - right_diag
             if abs(ins_size) < min_indel:
                 return False
 
             # check for desert gap of indels
-            desert = self.right.query_pos.query_start - self.left.query_pos.query_end - 1
+            desert = right_align.query_pos.query_start - left_align.query_pos.query_end - 1
             if desert > 0 and desert - max(0, ins_size) > max_unmapped_bases:
                 return False
 
         # passed all checks. valid split-read
         return True
 
-    def non_overlap(self):
+    def non_overlap(self, left_align, right_align):
         # get overlap of aligned query positions
-        overlap = get_query_overlap(self.left.query_pos.query_start,
-                                    self.left.query_pos.query_end,
-                                    self.right.query_pos.query_start,
-                                    self.right.query_pos.query_end)
+        overlap = get_query_overlap(left_align.query_pos.query_start,
+                                    left_align.query_pos.query_end,
+                                    right_align.query_pos.query_start,
+                                    right_align.query_pos.query_end)
 
         # get minimum non-overlap
-        left_non_overlap = 1 + self.left.query_pos.query_end - self.left.query_pos.query_start - overlap
-        right_non_overlap = 1 + self.right.query_pos.query_end - self.right.query_pos.query_start - overlap
+        left_non_overlap = 1 + left_align.query_pos.query_end - left_align.query_pos.query_start - overlap
+        right_non_overlap = 1 + right_align.query_pos.query_end - right_align.query_pos.query_start - overlap
         non_overlap = min(left_non_overlap, right_non_overlap)
 
         return non_overlap
+
+    def is_split_straddle(self,
+                          chromA, posA, ciA,
+                          chromB, posB, ciB,
+                          o1_is_reverse, o2_is_reverse,
+                          split_slop):
+        # print self.left.chrom + ":" + str(self.left.reference_start), self.right.chrom + ":" + str(self.right.reference_start)
+
+        # # left side is positive strand
+        # if not o1_is_reverse:
+        #      if self.left.reference_end < posA - split_slop:
+        #          return False
+        #      if self.left.reference_end > posA + split_slop:
+        #          return False
+
+        # if ((not o1_is_reverse
+        #      and self.left.reference_end >= posA - split_slop
+        #      and self.left.reference_end <= posA + split_slop)
+        #     or
+        #     (not o2_is_reverse
+        #      and self.right.reference_end >= posB - split_slop
+        #      and self.right.reference_end <= posB + split_slop)):
+        #     return True
+        return
 
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
@@ -1237,7 +1254,7 @@ def sv_genotype(bam_string,
                 # -------------------------------------
 
                 # get reference sequences
-                for read in fragment.primary_reads + fragment.auxil_reads:
+                for read in fragment.primary_reads:
                     is_ref = False
                     if ((read.reference_start <= posA - min_aligned / 2
                            and read.reference_end >= posA + min_aligned / 2)
@@ -1251,28 +1268,40 @@ def sv_genotype(bam_string,
 
                 # get non-reference split-read support
                 for split in fragment.split_reads:
-                    is_split = False
-                    if ((not o1_is_reverse
-                         and split.left.reference_end >= posA - split_slop
-                         and split.left.reference_end <= posA + split_slop)
-                        or
-                        (not o2_is_reverse
-                         and split.right.reference_end >= posB - split_slop
-                         and split.right.reference_end <= posB + split_slop)):
-                        is_split = True
+                    split.is_split_straddle(chromA, posA, ciA,
+                                            chromB, posB, ciB,
+                                            o1_is_reverse, o2_is_reverse,
+                                            split_slop)
 
-                    if ((o1_is_reverse
-                         and split.left.reference_start >= posA - split_slop
-                         and split.left.reference_start <= posA + split_slop)
-                        or
-                        (o2_is_reverse
-                         and split.right.reference_start >= posB - split_slop
-                         and split.right.reference_start <= posB + split_slop)):
-                        is_split = True
 
-                    if is_split:
-                        p_alt = prob_mapq(read)
-                        alt_seq += p_alt
+
+
+
+
+                    # is_split = False
+                    # if ((not o1_is_reverse
+                    #      and split.left.reference_end >= posA - split_slop
+                    #      and split.left.reference_end <= posA + split_slop)
+                    #     or
+                    #     (not o2_is_reverse
+                    #      and split.right.reference_end >= posB - split_slop
+                    #      and split.right.reference_end <= posB + split_slop)):
+                    #     is_split = True
+
+                    # if ((o1_is_reverse
+                    #      and split.left.reference_start >= posA - split_slop
+                    #      and split.left.reference_start <= posA + split_slop)
+                    #     or
+                    #     (o2_is_reverse
+                    #      and split.right.reference_start >= posB - split_slop
+                    #      and split.right.reference_start <= posB + split_slop)):
+                    #     is_split = True
+
+                    # if is_split:
+                    #     # print split.query_name
+                    #     # print split.read
+                    #     p_alt = prob_mapq(read)
+                    #     alt_seq += p_alt
 
                 # -------------------------------------
                 # Check for paired-end evidence
