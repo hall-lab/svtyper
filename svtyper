@@ -7,13 +7,8 @@ import math, time, re
 from collections import Counter
 from argparse import RawTextHelpFormatter
 
-__author__ = "Colby Chiang (cc2qe@virginia.edu)"
-__version__ = "$Revision: 0.0.4 $"
-__date__ = "$Date: 2016-04-05 09:07 $"
-
-# --------------------------------------
-# README
-#
+__author__ = "Colby Chiang (colbychiang@wustl.edu)"
+__version__ = "v0.1.0"
 
 # --------------------------------------
 # define functions
@@ -24,16 +19,16 @@ svtyper\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
-    parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
-    parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
-    parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    parser.add_argument('-m', '--min_aligned', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
-    parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
-    parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
-    parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
-    parser.add_argument('-l', '--lib_info', dest='lib_info_file', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information')
+    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
+    parser.add_argument('-i', '--input_vcf', metavar='VCF', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
+    parser.add_argument('-o', '--output_vcf', metavar='VCF',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
+    parser.add_argument('-l', '--lib_info', metavar='JSON', dest='lib_info_infile', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information (default: calculate from BAM)')
+    parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
+    parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
+    parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
+    parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
-    parser.add_argument('--dump', type=str, required=False, default=None, help='file prefix to dump library info and relevant BAM reads')
+    parser.add_argument('--dump', metavar='STR', type=str, required=False, default=None, help='file prefix to output library info (.json) and relevant BAM reads (.bam)')
 
     # parse the arguments
     args = parser.parse_args()
@@ -292,18 +287,11 @@ class Genotype(object):
 def write_read(read, bam, written_reads):
     read.seq = "*"
     read.qual = "*"
-
     read_hash = (read.query_name, read.flag, read.cigarstring)
 
-    if bam is None:
-        return written_reads
-    if read_hash in written_reads:
+    if bam is None or read_hash in written_reads:
         return written_reads
     else:
-        # print read.query_name, read.flag
-        # print read_hash
-        # print written_reads
-        
         bam.write(read)
         written_reads.add(read_hash)
         return written_reads
@@ -333,7 +321,7 @@ def write_sample_json(sample_list, lib_info_dump):
 
         lib_info[sample.name] = s
 
-    # print the json file
+    # write the json file
     json.dump(lib_info, lib_info_dump, indent=4)
     lib_info_dump.close()
 
@@ -730,7 +718,6 @@ class SamFragment(object):
     def __init__(self, read, lib):
         self.lib = lib
         self.primary_reads = []
-        self.auxil_reads = []
         self.split_reads = []
         self.read_set = set()
         self.num_primary = 0
@@ -742,16 +729,6 @@ class SamFragment(object):
 
         self.add_read(read)
 
-    def group_reads(self):
-        read_dict = {}
-        for read in self.primary_reads + self.auxil_reads:
-            read_sided = (read.query_name, read.is_read1)
-            if read_sided in read_dict:
-                read_dict[read_sided].append(read)
-            else:
-                read_dict[read_sided] = [read]
-        return read_dict
-
     def add_read(self, read):
         # ensure we don't add the same read twice
         read_hash = read.__hash__()
@@ -761,26 +738,27 @@ class SamFragment(object):
             self.read_set.add(read_hash)
         
         if is_primary(read):
+            # add the primary reads
             self.primary_reads.append(read)
             self.num_primary += 1
+
+            # make split candidate and check whether it's valid
+            split_candidate = SplitRead(read, self.lib)
+            if split_candidate.is_valid():
+                self.split_reads.append(split_candidate)
 
             # complete set of primaries
             if self.num_primary == 2:
                 self.readA, self.readB = self.primary_reads
-        else:
-            self.auxil_reads.append(read)
 
-        # add to split_reads if valid
-        split_candidate = SplitRead(read, self.lib)
-        if split_candidate.is_valid():
-            self.split_reads.append(split_candidate)
-
+    # get inner span
     def get_ispan(self, min_aligned):
         ispan1 = self.readA.reference_start + min_aligned
         ispan2 = self.readB.reference_end - min_aligned - 1
 
         return (ispan1, ispan2)
 
+    # get outer span
     def get_ospan(self):
         ospan1 = self.readA.reference_start
         ospan2 = self.readB.reference_end
@@ -860,24 +838,29 @@ class SamFragment(object):
 # (reads with more than 2 split alignments are discarded)
 class SplitRead(object):
     def __init__(self, read, lib):
+        self.query_name = read.query_name
         self.read = read
         self.lib = lib
         self.sa = None
-        self.left = None
-        self.right = None
+        self.q1 = None
+        self.q2 = None
 
-    # the left (or right) alignemnt
+    # the piece of each split alignemnt
     class SplitPiece(object):
         def __init__(self,
                      chrom,
                      reference_start,
                      is_reverse,
-                     cigar):
+                     cigar,
+                     mapq):
             self.chrom = chrom
             self.reference_start = reference_start
             self.reference_end = None
             self.is_reverse = is_reverse
             self.cigar = cigar
+            self.mapq = mapq
+            self.left_query = None
+            self.right_query = None
 
             # get query positions
             self.query_pos = get_query_pos_from_cigar(self.cigar, self.is_reverse)
@@ -901,31 +884,36 @@ class SplitRead(object):
         else:
             self.sa = sa_list[0].split(',')
             mate_chrom = self.sa[0]
-            mate_pos = int(self.sa[1]) - 1 # SA tag is one-based, while sam is zero-based
+            mate_pos = int(self.sa[1]) - 1 # SA tag is one-based, while SAM is zero-based
             mate_is_reverse = self.sa[2] == '-'
             mate_cigar = cigarstring_to_tuple(self.sa[3])
+            mate_mapq = int(self.sa[4])
 
-        # set left and right splitter
+        # make SplitPiece objects
         a = self.SplitPiece(self.read.reference_name,
                             self.read.reference_start,
                             self.read.is_reverse,
-                            self.read.cigar)
+                            self.read.cigar,
+                            self.read.mapping_quality)
         a.set_reference_end(self.read.reference_end)
 
         b = self.SplitPiece(mate_chrom,
                             mate_pos,
                             mate_is_reverse,
-                            mate_cigar)
+                            mate_cigar,
+                            mate_mapq)
         b.set_reference_end(get_reference_end_from_cigar(b.reference_start, b.cigar))
 
+        # set query_left and query_right splitter by alignment position on the reference
+        # this is used for non-overlap and off-diagonal filtering
+        # (query_left and query_right are random when on different chromosomes
         if (self.read.reference_name == mate_chrom
             and self.read.pos > mate_pos):
-            self.left = b
-            self.right = a
-
+            self.query_left = b
+            self.query_right = a
         else:
-            self.left = a
-            self.right = b
+            self.query_left = a
+            self.query_right = b
 
         # check non-overlap
         if self.non_overlap() < min_non_overlap:
@@ -933,24 +921,24 @@ class SplitRead(object):
 
         # check off-diagonal distance and desert
         # only relevant when split pieces are on the same chromosome and strand
-        if (self.left.chrom == self.right.chrom
-            and self.left.is_reverse == self.right.is_reverse):
+        if (self.query_left.chrom == self.query_right.chrom
+            and self.query_left.is_reverse == self.query_right.is_reverse):
             # use end diagonal on left and start diagonal on right since
             # the start and end diags might be different if there is an
             # indel in the alignments
-            if self.left.is_reverse:
-                left_diag = get_start_diagonal(self.left)
-                right_diag = get_end_diagonal(self.right)
+            if self.query_left.is_reverse:
+                left_diag = get_start_diagonal(self.query_left)
+                right_diag = get_end_diagonal(self.query_right)
                 ins_size = right_diag - left_diag
             else:
-                left_diag = get_end_diagonal(self.left)
-                right_diag = get_start_diagonal(self.right)
+                left_diag = get_end_diagonal(self.query_left)
+                right_diag = get_start_diagonal(self.query_right)
                 ins_size = left_diag - right_diag
             if abs(ins_size) < min_indel:
                 return False
 
             # check for desert gap of indels
-            desert = self.right.query_pos.query_start - self.left.query_pos.query_end - 1
+            desert = self.query_right.query_pos.query_start - self.query_left.query_pos.query_end - 1
             if desert > 0 and desert - max(0, ins_size) > max_unmapped_bases:
                 return False
 
@@ -959,17 +947,79 @@ class SplitRead(object):
 
     def non_overlap(self):
         # get overlap of aligned query positions
-        overlap = get_query_overlap(self.left.query_pos.query_start,
-                                    self.left.query_pos.query_end,
-                                    self.right.query_pos.query_start,
-                                    self.right.query_pos.query_end)
+        overlap = get_query_overlap(self.query_left.query_pos.query_start,
+                                    self.query_left.query_pos.query_end,
+                                    self.query_right.query_pos.query_start,
+                                    self.query_right.query_pos.query_end)
 
         # get minimum non-overlap
-        left_non_overlap = 1 + self.left.query_pos.query_end - self.left.query_pos.query_start - overlap
-        right_non_overlap = 1 + self.right.query_pos.query_end - self.right.query_pos.query_start - overlap
+        left_non_overlap = 1 + self.query_left.query_pos.query_end - self.query_left.query_pos.query_start - overlap
+        right_non_overlap = 1 + self.query_right.query_pos.query_end - self.query_right.query_pos.query_start - overlap
         non_overlap = min(left_non_overlap, right_non_overlap)
 
         return non_overlap
+
+    def is_split_straddle(self,
+                          chromA, posA, ciA,
+                          chromB, posB, ciB,
+                          o1_is_reverse, o2_is_reverse,
+                          split_slop):
+
+        # arrange the SV breakends from left to right
+        if (chromA != chromB
+            or (chromA == chromB and posA > posB)):
+            chrom_left = chromB
+            pos_left = posB
+            ci_left = ciB
+            is_reverse_left = o2_is_reverse
+            chrom_right = chromA
+            pos_right = posA
+            ci_right = ciA
+            is_reverse_right = o1_is_reverse
+        else:
+            chrom_left = chromA
+            pos_left = posA
+            ci_left = ciA
+            is_reverse_left = o1_is_reverse
+            chrom_right = chromB
+            pos_right = posB
+            ci_right = ciB
+            is_reverse_right = o2_is_reverse
+
+        if self.query_left.chrom != chrom_left or self.query_right.chrom != chrom_right:
+            return False
+
+        ''' Check left side of variant '''
+        # left side of variant is negative strand
+        if is_reverse_left:
+            if self.query_left.reference_start > pos_left + split_slop:
+                return False
+            if self.query_left.reference_start < pos_left - split_slop:
+                return False
+
+        # left side of variant is positive strand
+        else:
+            if self.query_left.reference_end > pos_left + split_slop:
+                return False
+            if self.query_left.reference_end < pos_left - split_slop:
+                return False
+
+        ''' Check right side of variant '''
+        # right side of variant is negative strand
+        if is_reverse_right:
+            if self.query_right.reference_start > pos_right + split_slop:
+                return False
+            if self.query_right.reference_start < pos_right - split_slop:
+                return False
+
+        # right side of variant is positive strand
+        else:
+            if self.query_right.reference_end < pos_right - split_slop:
+                return False
+            if self.query_right.reference_end > pos_right + split_slop:
+                return False
+
+        return True
 
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
@@ -1088,39 +1138,46 @@ def gather_reads(sample,
 # ==================================================
 
 def sv_genotype(bam_string,
-                vcf_file,
+                vcf_in,
                 vcf_out,
                 min_aligned,
                 split_weight,
                 disc_weight,
                 num_samp,
-                lib_info_file,
-                debug):
-
-    # grant ability to modify global variables
-    global out_bam_written_reads
+                lib_info_infile,
+                debug,
+                dump_prefix):
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
     min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
 
-    # parse lib_info_file JSON
-    if lib_info_file is not None:
-        lib_info = json.load(lib_info_file)
+    # parse lib_info_infile JSON
+    if lib_info_infile is not None:
+        lib_info = json.load(lib_info_infile)
 
+    # build the sample libraries, either from the lib_info JSON or empirically from the BAMs
     sample_list = list()
     for i in xrange(len(bam_list)):
-        if lib_info_file is None:
+        if lib_info_infile is None:
             sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
         else:
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
-
         sample_list.append(sample)
-    
-    # write the JSON for the library
-    if lib_info_dump is not None:
-        write_sample_json(sample_list, lib_info_dump)
 
+    # diagnostic dump of data (JSON and BAM)
+    if dump_prefix is not None:
+        # create a BAM file of the reads used for genotyping
+        out_bam_written_reads = set()
+        template_bam = pysam.AlignmentFile(bam_string.split(',')[0], 'rb')
+        out_bam = pysam.AlignmentFile(dump_prefix + '.bam', 'wb', template_bam)
+        template_bam.close()
+
+        # write the JSON for each sample's libraries
+        lib_info_outfile = open(dump_prefix + '.lib_info.json', 'w')
+        write_sample_json(sample_list, lib_info_outfile)
+
+    # set variables for genotyping
     z = 3
     split_slop = 3 # amount of slop around breakpoint to count splitters
     in_header = True
@@ -1129,7 +1186,7 @@ def sv_genotype(bam_string,
     vcf = Vcf()
 
     # read input VCF
-    for line in vcf_file:
+    for line in vcf_in:
         if in_header:
             if line[0] == '#':
                 header.append(line)
@@ -1237,12 +1294,16 @@ def sv_genotype(bam_string,
                 # -------------------------------------
 
                 # get reference sequences
-                for read in fragment.primary_reads + fragment.auxil_reads:
+                for read in fragment.primary_reads:
+                    # write to BAM if requested
+                    if dump_prefix is not None:
+                        out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
+
                     is_ref = False
-                    if ((read.reference_start <= posA - min_aligned / 2
-                           and read.reference_end >= posA + min_aligned / 2)
-                          or (read.reference_start <= posB - min_aligned / 2
-                              and read.reference_end >= posB + min_aligned / 2)):
+                    if ((read.reference_start <= posA - min_aligned
+                           and read.reference_end >= posA + min_aligned)
+                          or (read.reference_start <= posB - min_aligned
+                              and read.reference_end >= posB + min_aligned)):
                         is_ref = True
 
                     if is_ref:
@@ -1251,27 +1312,11 @@ def sv_genotype(bam_string,
 
                 # get non-reference split-read support
                 for split in fragment.split_reads:
-                    is_split = False
-                    if ((not o1_is_reverse
-                         and split.left.reference_end >= posA - split_slop
-                         and split.left.reference_end <= posA + split_slop)
-                        or
-                        (not o2_is_reverse
-                         and split.right.reference_end >= posB - split_slop
-                         and split.right.reference_end <= posB + split_slop)):
-                        is_split = True
-
-                    if ((o1_is_reverse
-                         and split.left.reference_start >= posA - split_slop
-                         and split.left.reference_start <= posA + split_slop)
-                        or
-                        (o2_is_reverse
-                         and split.right.reference_start >= posB - split_slop
-                         and split.right.reference_start <= posB + split_slop)):
-                        is_split = True
-
-                    if is_split:
-                        p_alt = prob_mapq(read)
+                    if split.is_split_straddle(chromA, posA, ciA,
+                                               chromB, posB, ciB,
+                                               o1_is_reverse, o2_is_reverse,
+                                               split_slop):
+                        p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
                         alt_seq += p_alt
 
                 # -------------------------------------
@@ -1333,10 +1378,13 @@ def sv_genotype(bam_string,
                                                            fragment.lib)
                 
                 if ref_straddle_A or ref_straddle_B:
-                    p_conc = fragment.p_concordant(var_length)
-                    if p_conc is not None:
-                        p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                        ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
+                    # don't allow the pair to jump the entire variant, except for
+                    # length-changing SVs like deletions
+                    if not (ref_straddle_A and ref_straddle_B) or svtype == 'DEL':
+                        p_conc = fragment.p_concordant(var_length)
+                        if p_conc is not None:
+                            p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
+                            ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
 
             if debug:
                 print '--------------------------'
@@ -1437,7 +1485,12 @@ def sv_genotype(bam_string,
             var2.active_formats = var.active_formats
             var2.genotype = var.genotype
             vcf_out.write(var2.get_var_string() + '\n')
+
+    # close the files
+    vcf_in.close()
     vcf_out.close()
+    if dump_prefix is not None:
+        out_bam.close()
 
     return
 
@@ -1448,21 +1501,6 @@ def main():
     # parse the command line args
     args = get_args()
 
-    # globally track the reads written to the BAM files
-    global out_bam
-    global lib_info_dump
-    if args.dump:
-        template_bam = pysam.AlignmentFile(args.bam.split(',')[0], 'rb')
-        out_bam = pysam.AlignmentFile(args.dump + '.bam', 'wb', template_bam)
-        template_bam.close()
-        lib_info_dump = open(args.dump + '.lib_info.json', 'w')
-    else:
-        out_bam = None
-        lib_info_dump = None
-
-    global out_bam_written_reads
-    out_bam_written_reads = set()
-
     # call primary function
     sv_genotype(args.bam,
                 args.input_vcf,
@@ -1471,15 +1509,9 @@ def main():
                 args.split_weight,
                 args.disc_weight,
                 args.num_samp,
-                args.lib_info_file,
-                args.debug)
-
-    # close the files
-    args.input_vcf.close()
-    if args.dump is not None:
-        out_bam.close()
-    if args.lib_info_file is not None:
-        args.lib_info_file.close()
+                args.lib_info_infile,
+                args.debug,
+                args.dump)
 
 # initialize the script
 if __name__ == '__main__':
