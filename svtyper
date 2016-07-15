@@ -7,13 +7,8 @@ import math, time, re
 from collections import Counter
 from argparse import RawTextHelpFormatter
 
-__author__ = "Colby Chiang (cc2qe@virginia.edu)"
-__version__ = "$Revision: 0.0.4 $"
-__date__ = "$Date: 2016-04-05 09:07 $"
-
-# --------------------------------------
-# README
-#
+__author__ = "Colby Chiang (colbychiang@wustl.edu)"
+__version__ = "v0.1.0"
 
 # --------------------------------------
 # define functions
@@ -916,18 +911,9 @@ class SplitRead(object):
                             mate_mapq)
         b.set_reference_end(get_reference_end_from_cigar(b.reference_start, b.cigar))
 
-        # # set left and right query alignments so that the left_query is clipped on the
-        # # right side and the right_query is clipped on the left side.
-        # if a.query_pos.query_start <= b.query_pos.query_start:
-        #     self.left_query = a
-        #     self.right_query = b
-        # else:
-        #     self.left_query = b
-        #     self.right_query = a
-        
-        # set self.query_left and self.query_right splitter by alignment position on the reference
+        # set query_left and query_right splitter by alignment position on the reference
         # this is used for non-overlap and off-diagonal filtering
-        # (self.query_left and self.query_right are random when on different chromosomes
+        # (query_left and query_right are random when on different chromosomes
         if (self.read.reference_name == mate_chrom
             and self.read.pos > mate_pos):
             self.query_left = b
@@ -936,16 +922,10 @@ class SplitRead(object):
             self.query_left = a
             self.query_right = b
 
-        # print 'check 1.5'
-        # print min_non_overlap, self.read
-        # print self.non_overlap(self.query_left, self.query_right)
-
         # check non-overlap
         if self.non_overlap() < min_non_overlap:
             return False
 
-        # print 'check 2'
-        
         # check off-diagonal distance and desert
         # only relevant when split pieces are on the same chromosome and strand
         if (self.query_left.chrom == self.query_right.chrom
@@ -984,15 +964,6 @@ class SplitRead(object):
         right_non_overlap = 1 + self.query_right.query_pos.query_end - self.query_right.query_pos.query_start - overlap
         non_overlap = min(left_non_overlap, right_non_overlap)
 
-        # print self.query_left.query_pos.query_start, self.query_left.query_pos.query_end
-        # print self.query_right.query_pos.query_start, self.query_right.query_pos.query_end
-        
-        
-        # print 'overlap', overlap
-        # print 'left', left_non_overlap
-        # print 'right', right_non_overlap
-
-        
         return non_overlap
 
     def is_split_straddle(self,
@@ -1001,6 +972,7 @@ class SplitRead(object):
                           o1_is_reverse, o2_is_reverse,
                           split_slop):
 
+        # arrange the SV breakends from left to right
         if (chromA != chromB
             or (chromA == chromB and posA > posB)):
             chrom_left = chromB
@@ -1024,16 +996,9 @@ class SplitRead(object):
         if self.query_left.chrom != chrom_left or self.query_right.chrom != chrom_right:
             return False
 
-        # print self.read.query_name
-        # print 'left', self.query_left.is_reverse, self.query_left.query_pos.query_start, self.query_left.query_pos.query_end, self.query_left.chrom, self.query_left.reference_start, self.query_left.reference_end
-        # print 'right', self.query_right.is_reverse, self.query_right.query_pos.query_start, self.query_right.query_pos.query_end, self.query_right.chrom, self.query_right.reference_start, self.query_right.reference_end
-        
-
         ''' Check left side of variant '''
         # left side of variant is negative strand
         if is_reverse_left:
-            # if not self.query_left.is_reverse:
-            #     return False
             if self.query_left.reference_start > pos_left + split_slop:
                 return False
             if self.query_left.reference_start < pos_left - split_slop:
@@ -1041,8 +1006,6 @@ class SplitRead(object):
 
         # left side of variant is positive strand
         else:
-            # if self.query_left.is_reverse:
-            #     return False
             if self.query_left.reference_end > pos_left + split_slop:
                 return False
             if self.query_left.reference_end < pos_left - split_slop:
@@ -1051,8 +1014,6 @@ class SplitRead(object):
         ''' Check right side of variant '''
         # right side of variant is negative strand
         if is_reverse_right:
-            # if self.query_right.is_reverse: # for splits, orientation is not inward-facing
-            #     return False
             if self.query_right.reference_start > pos_right + split_slop:
                 return False
             if self.query_right.reference_start < pos_right - split_slop:
@@ -1060,8 +1021,6 @@ class SplitRead(object):
 
         # right side of variant is positive strand
         else:
-            # if not self.query_right.is_reverse: # for splits, orientation is not inward-facing
-            #     return False
             if self.query_right.reference_end < pos_right - split_slop:
                 return False
             if self.query_right.reference_end > pos_right + split_slop:
