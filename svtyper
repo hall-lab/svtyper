@@ -19,16 +19,16 @@ svtyper\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
-    parser.add_argument('-B', '--bam', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
-    parser.add_argument('-i', '--input_vcf', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
-    parser.add_argument('-o', '--output_vcf', type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    parser.add_argument('-m', '--min_aligned', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
-    parser.add_argument('--split_weight', type=float, required=False, default=1, help='weight for split reads [1]')
-    parser.add_argument('--disc_weight', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
-    parser.add_argument('-n', dest='num_samp', type=int, required=False, default=1000000, help='number of pairs to sample from BAM file for building insert size distribution [1000000]')
-    parser.add_argument('-l', '--lib_info', dest='lib_info_file', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information')
+    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
+    parser.add_argument('-i', '--input_vcf', metavar='VCF', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
+    parser.add_argument('-o', '--output_vcf', metavar='VCF',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
+    parser.add_argument('-l', '--lib_info', metavar='JSON', dest='lib_info_infile', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information (default: calculate from BAM)')
+    parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
+    parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
+    parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
+    parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
-    parser.add_argument('--dump', type=str, required=False, default=None, help='file prefix to dump library info and relevant BAM reads')
+    parser.add_argument('--dump', metavar='STR', type=str, required=False, default=None, help='file prefix to output library info (.json) and relevant BAM reads (.bam)')
 
     # parse the arguments
     args = parser.parse_args()
@@ -287,18 +287,11 @@ class Genotype(object):
 def write_read(read, bam, written_reads):
     read.seq = "*"
     read.qual = "*"
-
     read_hash = (read.query_name, read.flag, read.cigarstring)
 
-    if bam is None:
-        return written_reads
-    if read_hash in written_reads:
+    if bam is None or read_hash in written_reads:
         return written_reads
     else:
-        # print read.query_name, read.flag
-        # print read_hash
-        # print written_reads
-        
         bam.write(read)
         written_reads.add(read_hash)
         return written_reads
@@ -328,7 +321,7 @@ def write_sample_json(sample_list, lib_info_dump):
 
         lib_info[sample.name] = s
 
-    # print the json file
+    # write the json file
     json.dump(lib_info, lib_info_dump, indent=4)
     lib_info_dump.close()
 
@@ -1145,39 +1138,46 @@ def gather_reads(sample,
 # ==================================================
 
 def sv_genotype(bam_string,
-                vcf_file,
+                vcf_in,
                 vcf_out,
                 min_aligned,
                 split_weight,
                 disc_weight,
                 num_samp,
-                lib_info_file,
-                debug):
-
-    # grant ability to modify global variables
-    global out_bam_written_reads
+                lib_info_infile,
+                debug,
+                dump_prefix):
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
     min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
 
-    # parse lib_info_file JSON
-    if lib_info_file is not None:
-        lib_info = json.load(lib_info_file)
+    # parse lib_info_infile JSON
+    if lib_info_infile is not None:
+        lib_info = json.load(lib_info_infile)
 
+    # build the sample libraries, either from the lib_info JSON or empirically from the BAMs
     sample_list = list()
     for i in xrange(len(bam_list)):
-        if lib_info_file is None:
+        if lib_info_infile is None:
             sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
         else:
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
-
         sample_list.append(sample)
-    
-    # write the JSON for the library
-    if lib_info_dump is not None:
-        write_sample_json(sample_list, lib_info_dump)
 
+    # diagnostic dump of data (JSON and BAM)
+    if dump_prefix is not None:
+        # create a BAM file of the reads used for genotyping
+        out_bam_written_reads = set()
+        template_bam = pysam.AlignmentFile(bam_string.split(',')[0], 'rb')
+        out_bam = pysam.AlignmentFile(dump_prefix + '.bam', 'wb', template_bam)
+        template_bam.close()
+
+        # write the JSON for each sample's libraries
+        lib_info_outfile = open(dump_prefix + '.lib_info.json', 'w')
+        write_sample_json(sample_list, lib_info_outfile)
+
+    # set variables for genotyping
     z = 3
     split_slop = 3 # amount of slop around breakpoint to count splitters
     in_header = True
@@ -1186,7 +1186,7 @@ def sv_genotype(bam_string,
     vcf = Vcf()
 
     # read input VCF
-    for line in vcf_file:
+    for line in vcf_in:
         if in_header:
             if line[0] == '#':
                 header.append(line)
@@ -1295,6 +1295,10 @@ def sv_genotype(bam_string,
 
                 # get reference sequences
                 for read in fragment.primary_reads:
+                    # write to BAM if requested
+                    if dump_prefix is not None:
+                        out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
+
                     is_ref = False
                     if ((read.reference_start <= posA - min_aligned
                            and read.reference_end >= posA + min_aligned)
@@ -1481,7 +1485,12 @@ def sv_genotype(bam_string,
             var2.active_formats = var.active_formats
             var2.genotype = var.genotype
             vcf_out.write(var2.get_var_string() + '\n')
+
+    # close the files
+    vcf_in.close()
     vcf_out.close()
+    if dump_prefix is not None:
+        out_bam.close()
 
     return
 
@@ -1492,21 +1501,6 @@ def main():
     # parse the command line args
     args = get_args()
 
-    # globally track the reads written to the BAM files
-    global out_bam
-    global lib_info_dump
-    if args.dump:
-        template_bam = pysam.AlignmentFile(args.bam.split(',')[0], 'rb')
-        out_bam = pysam.AlignmentFile(args.dump + '.bam', 'wb', template_bam)
-        template_bam.close()
-        lib_info_dump = open(args.dump + '.lib_info.json', 'w')
-    else:
-        out_bam = None
-        lib_info_dump = None
-
-    global out_bam_written_reads
-    out_bam_written_reads = set()
-
     # call primary function
     sv_genotype(args.bam,
                 args.input_vcf,
@@ -1515,15 +1509,9 @@ def main():
                 args.split_weight,
                 args.disc_weight,
                 args.num_samp,
-                args.lib_info_file,
-                args.debug)
-
-    # close the files
-    args.input_vcf.close()
-    if args.dump is not None:
-        out_bam.close()
-    if args.lib_info_file is not None:
-        args.lib_info_file.close()
+                args.lib_info_infile,
+                args.debug,
+                args.dump)
 
 # initialize the script
 if __name__ == '__main__':
