@@ -1415,10 +1415,13 @@ def sv_genotype(bam_string,
                                                            fragment.lib)
                 
                 if ref_straddle_A or ref_straddle_B:
-                    p_conc = fragment.p_concordant(var_length)
-                    if p_conc is not None:
-                        p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-                        ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
+                    # don't allow the pair to jump the entire variant, except for
+                    # length-changing SVs like deletions
+                    if not (ref_straddle_A and ref_straddle_B) or svtype == 'DEL':
+                        p_conc = fragment.p_concordant(var_length)
+                        if p_conc is not None:
+                            p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
+                            ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
 
             if debug:
                 print '--------------------------'
