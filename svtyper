@@ -595,6 +595,11 @@ class Library(object):
             if counter == self.num_samp:
                 break
 
+        if len(valueCounts) == 0:
+            sys.stderr.write('\nError: failed to build insert size histogram for paired-end reads.\n\
+Please ensure BAM file (%s) has inward facing, paired-end reads.\n\n' % self.bam.filename)
+            exit(1)
+
         # remove outliers
         med = median(valueCounts)
         u_mad = upper_mad(valueCounts, med)
