@@ -835,15 +835,20 @@ class Library(object):
                 or read.mate_is_unmapped
                 or (legacy and read.is_secondary)
                 or (not legacy and read.flag & 2048 == 2048)
-                or read.tlen <= 0
+                or read.template_length <= 0
                 or read.opt('RG') not in self.readgroups):
                 continue
             else:
-                valueCounts[read.tlen] += 1
+                valueCounts[read.template_length] += 1
                 counter += 1
             if counter == self.num_samp:
                 break
 
+        # quit if insufficient data to build histogram
+        if len(valueCounts) == 0:
+            sys.stderr.write('not enough data\n')
+            exit(1)
+        
         # remove outliers
         med = median(valueCounts)
         u_mad = upper_mad(valueCounts, med)
