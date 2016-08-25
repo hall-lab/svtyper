@@ -1153,7 +1153,6 @@ def sv_genotype(bam_string,
                 debug,
                 bam_outpath,
                 lib_info_outfile):
-                # quit_early):
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
@@ -1163,7 +1162,11 @@ def sv_genotype(bam_string,
     if lib_info_infile is not None:
         lib_info = json.load(lib_info_infile)
 
+    if vcf_in is None:
+        sys.stderr.write('\nWarning: VCF not found.\n')
+
     # build the sample libraries, either from the lib_info JSON or empirically from the BAMs
+    sys.stderr.write('\nCalculating library statistics...')
     sample_list = list()
     for i in xrange(len(bam_list)):
         if lib_info_infile is None:
@@ -1171,8 +1174,9 @@ def sv_genotype(bam_string,
         else:
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
         sample_list.append(sample)
+    sys.stderr.write(' done\n')
 
-    # diagnostic dump of data (JSON and/or BAM)
+    # diagnostic dump of relevant BAM reads
     if bam_outpath is not None:
         # create a BAM file of the reads used for genotyping
         out_bam_written_reads = set()
@@ -1183,6 +1187,7 @@ def sv_genotype(bam_string,
     # write the JSON for each sample's libraries
     if lib_info_outfile is not None:
         write_sample_json(sample_list, lib_info_outfile)
+        sys.stderr.write('\nWrote library info to %s\n' % lib_info_outfile.name)
         lib_info_outfile.close()
 
     # quit early if VCF absent
