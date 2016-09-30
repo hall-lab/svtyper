@@ -1246,6 +1246,12 @@ def sv_genotype(bam_string,
 
         # genotype generic breakends
         svtype = var.get_info('SVTYPE')
+
+        # print original line if unsupported svtype
+        if svtype not in ('BND', 'DEL', 'DUP', 'INV'):
+            vcf_out.write(var.get_var_string() + '\n')
+            continue
+        
         if svtype == 'BND':
             if var.info['MATEID'] in breakend_dict:
                 var2 = var
