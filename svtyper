@@ -2,7 +2,6 @@
 
 import pysam
 import json
-from scipy import stats
 import argparse, sys, os.path
 import math, time, re
 from collections import Counter
@@ -56,6 +55,7 @@ class Vcf(object):
         self.format_list = []
         self.alt_list = []
         self.add_format('GT', 1, 'String', 'Genotype')
+        self.header_misc = []
 
     def add_header(self, header):
         for line in header:
@@ -77,6 +77,10 @@ class Vcf(object):
                 self.add_format(*[b.split('=')[1] for b in r.findall(a)])
             elif line[0] == '#' and line[1] != '#':
                 self.sample_list = line.rstrip().split('\t')[9:]
+            elif line.startswith('##fileDate='):
+                pass
+            else:
+                self.header_misc.append(line.rstrip())
 
     # return the VCF header
     def get_header(self):
@@ -86,6 +90,7 @@ class Vcf(object):
                            [i.hstring for i in self.info_list] + \
                            [a.hstring for a in self.alt_list] + \
                            [f.hstring for f in self.format_list] + \
+                           self.header_misc + \
                            ['\t'.join([
                                '#CHROM',
                                'POS',
@@ -1216,7 +1221,7 @@ def sv_genotype(bam_string,
 
     # parse lib_info_path JSON
     lib_info = None
-    if os.path.isfile(lib_info_path):
+    if lib_info_path is not None and os.path.isfile(lib_info_path):
         lib_info_file = open(lib_info_path, 'r')
         lib_info = json.load(lib_info_file)
 
