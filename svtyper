@@ -3,7 +3,7 @@
 import pysam
 import json
 from scipy import stats
-import argparse, sys
+import argparse, sys, os.path
 import math, time, re
 from collections import Counter
 from argparse import RawTextHelpFormatter
@@ -20,17 +20,16 @@ svtyper\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
-    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', metavar='VCF', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', metavar='VCF',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    parser.add_argument('-l', '--lib_info', metavar='JSON', dest='lib_info_infile', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information (default: calculate from BAM)')
+    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
+    parser.add_argument('-l', '--lib_info', metavar='JSON', dest='lib_info_path', type=str, required=False, default=None, help='input JSON file of library information (create from BAM if file does not exist)')
     parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
-    parser.add_argument('--debug', action='store_true', help='debugging verbosity')
     parser.add_argument('-wb', '--write_bam', metavar='FILE', dest='bam_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
-    parser.add_argument('-wl', '--write_lib_info', metavar='FILE', dest='lib_info_outfile', type=argparse.FileType('w'), required=False, default=None, help='write library info to JSON file')
+    parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
     # parse the arguments
     args = parser.parse_args()
@@ -297,7 +296,7 @@ def write_read(read, bam, written_reads):
         return written_reads
 
 # dump the sample and library info to a file
-def write_sample_json(sample_list, lib_info_dump):
+def write_sample_json(sample_list, lib_info_file):
     lib_info = {}
     for sample in sample_list:
         s = {}
@@ -322,8 +321,8 @@ def write_sample_json(sample_list, lib_info_dump):
         lib_info[sample.name] = s
 
     # write the json file
-    json.dump(lib_info, lib_info_dump, indent=4)
-    lib_info_dump.close()
+    json.dump(lib_info, lib_info_file, indent=4)
+    lib_info_file.close()
 
 
 # ==================================================
@@ -1203,18 +1202,19 @@ def sv_genotype(bam_string,
                 split_weight,
                 disc_weight,
                 num_samp,
-                lib_info_infile,
+                lib_info_path,
                 debug,
-                bam_outpath,
-                lib_info_outfile):
+                bam_outpath):
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
     min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
 
-    # parse lib_info_infile JSON
-    if lib_info_infile is not None:
-        lib_info = json.load(lib_info_infile)
+    # parse lib_info_path JSON
+    lib_info = None
+    if os.path.isfile(lib_info_path):
+        lib_info_file = open(lib_info_path, 'r')
+        lib_info = json.load(lib_info_file)
 
     if vcf_in is None:
         sys.stderr.write('\nWarning: VCF not found.\n')
@@ -1223,7 +1223,7 @@ def sv_genotype(bam_string,
     sys.stderr.write('\nCalculating library statistics...')
     sample_list = list()
     for i in xrange(len(bam_list)):
-        if lib_info_infile is None:
+        if lib_info is None:
             sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
         else:
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
@@ -1242,10 +1242,11 @@ def sv_genotype(bam_string,
         template_bam.close()
 
     # write the JSON for each sample's libraries
-    if lib_info_outfile is not None:
-        write_sample_json(sample_list, lib_info_outfile)
-        sys.stderr.write('\nWrote library info to %s\n' % lib_info_outfile.name)
-        lib_info_outfile.close()
+    if lib_info_path is not None and not os.path.isfile(lib_info_path):
+        lib_info_file = open(lib_info_path, 'w')
+        write_sample_json(sample_list, lib_info_file)
+        sys.stderr.write('\nWrote library info to %s\n' % lib_info_path)
+        lib_info_file.close()
 
     # quit early if VCF absent
     if vcf_in is None:
@@ -1597,10 +1598,9 @@ def main():
                 args.split_weight,
                 args.disc_weight,
                 args.num_samp,
-                args.lib_info_infile,
+                args.lib_info_path,
                 args.debug,
-                args.bam_outpath,
-                args.lib_info_outfile)
+                args.bam_outpath)
 
 # initialize the script
 if __name__ == '__main__':
