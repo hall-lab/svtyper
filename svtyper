@@ -662,16 +662,12 @@ class Sample(object):
         self.bam_mapped = bam_mapped
         self.bam_unmapped = bam_unmapped
 
-
-
         # get active libraries
         self.active_libs = []
         for lib in lib_dict.values():
             if lib.prevalence >= min_lib_prevalence:
                 self.active_libs.append(lib)
 
-        # print stats.binom.cdf(x, 20, 0.4)
-        
     # constructor from supplied JSON descriptor
     @classmethod
     def from_lib_info(cls,
@@ -885,11 +881,7 @@ class SamFragment(object):
             p = float(self.lib.dens[ospan_length]) * conc_prior / (conc_prior * self.lib.dens[ospan_length] + disc_prior * (self.lib.dens[ospan_length - var_length]))
         except ZeroDivisionError:
             p = None
-        # print p, ospan, self.lib.dens[ospan_length], self.lib.dens[ospan_length-var_length], var_length, ospan_length
-        # print p
-        # print self.readA
-        # print self.readB
-        # return p
+
         return p > 0.5
 
 # ==================================================
@@ -1184,7 +1176,6 @@ def gather_reads(sample,
         lib = sample.get_lib(read.get_tag('RG')) # get the read's library
         if (read.is_unmapped
             or read.is_duplicate
-            # or read.get_tag('NM') >= 4
             or lib not in sample.active_libs):
             continue
 
@@ -1479,32 +1470,6 @@ def sv_genotype(bam_string,
                             # print 'p_conc', p_conc
                             p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
-
-            # depth scale
-            # print 'span', alt_span + ref_span, sample.exp_spanning_depth
-            # print 'seq', alt_seq + ref_seq, sample.exp_seq_depth
-
-            # span_scale = max(1, (alt_span + ref_span) / sample.exp_spanning_depth)
-            # seq_scale = max(1, (alt_seq + ref_seq) / sample.exp_seq_depth)
-            # alt_span = alt_span * span_scale
-            # ref_span = ref_span * span_scale
-
-            # alt_seq = alt_seq * seq_scale
-            # ref_seq = ref_seq * seq_scale
-
-            # seq_depth = alt_seq + ref_seq
-            # span_depth = alt_span + ref_span
-
-            # span_scale = stats.binom.cdf(int(round(span_depth)), 633809029, (387-300+40)/3101804739.0)
-            # seq_scale = stats.binom.cdf(int(round(seq_depth)), 633809029, (151-40)/3101804739.0)
-
-            # alt_seq = alt_seq * seq_scale
-            # ref_seq = ref_seq * seq_scale
-
-
-            # print span_scale, seq_scale
-
-            # alt_span 
 
             if debug:
                 print '--------------------------'
