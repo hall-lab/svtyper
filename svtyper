@@ -2,7 +2,7 @@
 
 import pysam
 import json
-import argparse, sys
+import argparse, sys, os.path
 import math, time, re
 from collections import Counter
 from argparse import RawTextHelpFormatter
@@ -19,17 +19,16 @@ svtyper\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
-    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
     parser.add_argument('-i', '--input_vcf', metavar='VCF', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', metavar='VCF',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    parser.add_argument('-l', '--lib_info', metavar='JSON', dest='lib_info_infile', type=argparse.FileType('r'), required=False, default=None, help='JSON file of library information (default: calculate from BAM)')
+    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
+    parser.add_argument('-l', '--lib_info', metavar='JSON', dest='lib_info_path', type=str, required=False, default=None, help='input JSON file of library information (create from BAM if file does not exist)')
     parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
+    parser.add_argument('-wb', '--write_bam', metavar='FILE', dest='bam_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
-    parser.add_argument('-wb', '--write_bam', metavar='BAM', dest='bam_outpath', type=str, required=False, default=None, help='write relevant read to BAM file (.bam)')
-    parser.add_argument('-wl', '--write_lib_info', metavar='JSON', dest='lib_info_outfile', type=argparse.FileType('w'), required=False, default=None, help='write library info to JSON file (.json)')
 
     # parse the arguments
     args = parser.parse_args()
@@ -56,6 +55,7 @@ class Vcf(object):
         self.format_list = []
         self.alt_list = []
         self.add_format('GT', 1, 'String', 'Genotype')
+        self.header_misc = []
 
     def add_header(self, header):
         for line in header:
@@ -77,6 +77,10 @@ class Vcf(object):
                 self.add_format(*[b.split('=')[1] for b in r.findall(a)])
             elif line[0] == '#' and line[1] != '#':
                 self.sample_list = line.rstrip().split('\t')[9:]
+            elif line.startswith('##fileDate='):
+                pass
+            else:
+                self.header_misc.append(line.rstrip())
 
     # return the VCF header
     def get_header(self):
@@ -86,6 +90,7 @@ class Vcf(object):
                            [i.hstring for i in self.info_list] + \
                            [a.hstring for a in self.alt_list] + \
                            [f.hstring for f in self.format_list] + \
+                           self.header_misc + \
                            ['\t'.join([
                                '#CHROM',
                                'POS',
@@ -296,7 +301,7 @@ def write_read(read, bam, written_reads):
         return written_reads
 
 # dump the sample and library info to a file
-def write_sample_json(sample_list, lib_info_dump):
+def write_sample_json(sample_list, lib_info_file):
     lib_info = {}
     for sample in sample_list:
         s = {}
@@ -321,8 +326,8 @@ def write_sample_json(sample_list, lib_info_dump):
         lib_info[sample.name] = s
 
     # write the json file
-    json.dump(lib_info, lib_info_dump, indent=4)
-    lib_info_dump.close()
+    json.dump(lib_info, lib_info_file, indent=4)
+    lib_info_file.close()
 
 
 # ==================================================
@@ -347,9 +352,9 @@ def log_choose(n, k):
 def bayes_gt(ref, alt, is_dup):
     # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
     if is_dup: # specialized logic to handle non-destructive events such as duplications
-        p_alt = [0.01, 0.3, 0.5]
+        p_alt = [1e-4, 1/3.0, 0.5]
     else:
-        p_alt = [0.01, 0.5, 0.9]
+        p_alt = [1e-4, 0.5, 0.9]
 
     total = ref + alt
     log_combo = log_choose(total, alt)
@@ -617,6 +622,26 @@ Please ensure BAM file (%s) has inward facing, paired-end reads.\n\n' % self.bam
             dens[i] = float(self.hist[i])/countRecords(self.hist)
         self.dens = dens
 
+    # future function to empirically sample sequence coverage at random genomic sites
+    def calc_seq_coverage(self):
+        max_count = 100000
+        lib_counter = 0
+        read_counter = 0
+
+        for read in self.bam.fetch():
+            if read_counter == max_count:
+                break
+            if read.get_tag('RG') in self.readgroups:
+                print read.query_alignment_length
+
+            read_counter += 1
+
+        return
+
+    # future function to empirically sample spanning coverage at random genomic sites
+    def calc_spanning_coverage(self):
+        return
+
 # ==================================================
 # Sample parsing
 # ==================================================
@@ -630,12 +655,16 @@ class Sample(object):
                  num_samp,
                  lib_dict,
                  rg_to_lib,
-                 min_lib_prevalence):
+                 min_lib_prevalence,
+                 bam_mapped,
+                 bam_unmapped):
 
         self.name = name
         self.bam = bam
         self.lib_dict = lib_dict
         self.rg_to_lib = rg_to_lib
+        self.bam_mapped = bam_mapped
+        self.bam_unmapped = bam_unmapped
 
         # get active libraries
         self.active_libs = []
@@ -655,26 +684,32 @@ class Sample(object):
         rg_to_lib = {}
         lib_dict = {}
 
-        for i in xrange(len(lib_info[name]['libraryArray'])):
-            lib = lib_info[name]['libraryArray'][i]
-            lib_name = lib['library_name']
+        try:
+            for i in xrange(len(lib_info[name]['libraryArray'])):
+                lib = lib_info[name]['libraryArray'][i]
+                lib_name = lib['library_name']
 
-            # make library object
-            lib_dict[lib_name] = Library.from_lib_info(name,
-                                                       i,
-                                                       bam,
-                                                       lib_info)
+                # make library object
+                lib_dict[lib_name] = Library.from_lib_info(name,
+                                                           i,
+                                                           bam,
+                                                           lib_info)
 
-            # make a map from readgroup IDs to library objects
-            for rg in lib['readgroups']:
-                rg_to_lib[rg] = lib_dict[lib_name]
+                # make a map from readgroup IDs to library objects
+                for rg in lib['readgroups']:
+                    rg_to_lib[rg] = lib_dict[lib_name]
+        except KeyError:
+            sys.stderr.write('\nError: sample %s not found in JSON library file.\n' % name)
+            exit(1)
 
         return cls(name,
                    bam,
                    num_samp,
                    lib_dict,
                    rg_to_lib,
-                   min_lib_prevalence)
+                   min_lib_prevalence,
+                   lib_info[name]['mapped'],
+                   lib_info[name]['unmapped'])
 
     # constructor for empirical distributions
     @classmethod
@@ -704,7 +739,9 @@ class Sample(object):
                    num_samp,
                    lib_dict,
                    rg_to_lib,
-                   min_lib_prevalence)
+                   min_lib_prevalence,
+                   bam.mapped,
+                   bam.unmapped)
 
     # get the maximum fetch flank for reading the BAM file
     def get_fetch_flank(self, z):
@@ -713,6 +750,26 @@ class Sample(object):
     # return the library object for a specified read group
     def get_lib(self, readgroup):
         return self.rg_to_lib[readgroup]
+
+    # return the expected spanning coverage at any given base
+    def set_exp_spanning_depth(self, min_aligned):
+        genome_size = float(sum(self.bam.lengths))
+        weighted_mean_span = sum([(lib.mean - 2 * lib.read_length + 2 * min_aligned) * lib.prevalence for lib in self.lib_dict.values()])
+        exp_spanning_depth = (weighted_mean_span * self.bam_mapped) / genome_size
+        
+        self.exp_spanning_depth = exp_spanning_depth
+
+        return
+
+    # return the expected sequence coverage at any given base
+    def set_exp_seq_depth(self, min_aligned):
+        genome_size = float(sum(self.bam.lengths))
+        weighted_mean_read_length = sum([(lib.read_length - 2 * min_aligned) * lib.prevalence for lib in self.lib_dict.values()])
+        exp_seq_depth = (weighted_mean_read_length * self.bam_mapped) / genome_size
+
+        self.exp_seq_depth = exp_seq_depth
+
+        return
 
 # ==================================================
 # Class for SAM fragment, containing all alignments
@@ -814,8 +871,8 @@ class SamFragment(object):
     # given the putative variant size and insert distribution of the library.
     def p_concordant(self, var_length=None):
         # a priori probability that a read-pair is concordant
-        conc_prior = 0.95
-        disc_prior = 1 - conc_prior
+        disc_prior = 0.05
+        conc_prior = 1 - disc_prior
 
         ospan = self.get_ospan()
 
@@ -832,7 +889,8 @@ class SamFragment(object):
             p = float(self.lib.dens[ospan_length]) * conc_prior / (conc_prior * self.lib.dens[ospan_length] + disc_prior * (self.lib.dens[ospan_length - var_length]))
         except ZeroDivisionError:
             p = None
-        return p
+
+        return p > 0.5
 
 # ==================================================
 # Class for a split-read, containing all alignments
@@ -991,40 +1049,44 @@ class SplitRead(object):
             ci_right = ciB
             is_reverse_right = o2_is_reverse
 
+        # bail is chromosomes don't match variant
         if self.query_left.chrom != chrom_left or self.query_right.chrom != chrom_right:
             return False
+
+        left_split = True
+        right_split = True
 
         ''' Check left side of variant '''
         # left side of variant is negative strand
         if is_reverse_left:
             if self.query_left.reference_start > pos_left + split_slop:
-                return False
+                left_split = False
             if self.query_left.reference_start < pos_left - split_slop:
-                return False
+                left_split = False
 
         # left side of variant is positive strand
         else:
             if self.query_left.reference_end > pos_left + split_slop:
-                return False
+                left_split = False
             if self.query_left.reference_end < pos_left - split_slop:
-                return False
+                left_split = False
 
         ''' Check right side of variant '''
         # right side of variant is negative strand
         if is_reverse_right:
             if self.query_right.reference_start > pos_right + split_slop:
-                return False
+                right_split = False
             if self.query_right.reference_start < pos_right - split_slop:
-                return False
+                right_split = False
 
         # right side of variant is positive strand
         else:
             if self.query_right.reference_end < pos_right - split_slop:
-                return False
+                right_split = False
             if self.query_right.reference_end > pos_right + split_slop:
-                return False
+                right_split = False
 
-        return True
+        return right_split or left_split
 
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
@@ -1149,18 +1211,19 @@ def sv_genotype(bam_string,
                 split_weight,
                 disc_weight,
                 num_samp,
-                lib_info_infile,
+                lib_info_path,
                 debug,
-                bam_outpath,
-                lib_info_outfile):
+                bam_outpath):
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
     min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
 
-    # parse lib_info_infile JSON
-    if lib_info_infile is not None:
-        lib_info = json.load(lib_info_infile)
+    # parse lib_info_path JSON
+    lib_info = None
+    if lib_info_path is not None and os.path.isfile(lib_info_path):
+        lib_info_file = open(lib_info_path, 'r')
+        lib_info = json.load(lib_info_file)
 
     if vcf_in is None:
         sys.stderr.write('\nWarning: VCF not found.\n')
@@ -1169,10 +1232,13 @@ def sv_genotype(bam_string,
     sys.stderr.write('\nCalculating library statistics...')
     sample_list = list()
     for i in xrange(len(bam_list)):
-        if lib_info_infile is None:
+        if lib_info is None:
             sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
         else:
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
+        
+        sample.set_exp_seq_depth(min_aligned)
+        sample.set_exp_spanning_depth(min_aligned)
         sample_list.append(sample)
     sys.stderr.write(' done\n')
 
@@ -1185,10 +1251,11 @@ def sv_genotype(bam_string,
         template_bam.close()
 
     # write the JSON for each sample's libraries
-    if lib_info_outfile is not None:
-        write_sample_json(sample_list, lib_info_outfile)
-        sys.stderr.write('\nWrote library info to %s\n' % lib_info_outfile.name)
-        lib_info_outfile.close()
+    if lib_info_path is not None and not os.path.isfile(lib_info_path):
+        lib_info_file = open(lib_info_path, 'w')
+        write_sample_json(sample_list, lib_info_file)
+        sys.stderr.write('\nWrote library info to %s\n' % lib_info_path)
+        lib_info_file.close()
 
     # quit early if VCF absent
     if vcf_in is None:
@@ -1349,7 +1416,7 @@ def sv_genotype(bam_string,
                 # -------------------------------------
                                     
                 # tally spanning alternate pairs
-                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd:
+                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd and alt_seq < 1:
                     alt_straddle = False
                 else:
                     alt_straddle = fragment.is_pair_straddle(chromA, posA, ciA,
@@ -1372,6 +1439,9 @@ def sv_genotype(bam_string,
                 if alt_straddle or alt_straddle_reciprocal:
                     if svtype == 'DEL':
                         p_conc = fragment.p_concordant(var_length)
+                        # print read.query_name, p_conc
+                        # if not p_conc:
+                        #     print read
                         if p_conc is not None:
                             p_alt = (1 - p_conc) * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             alt_span += p_alt
@@ -1383,24 +1453,25 @@ def sv_genotype(bam_string,
                             # continue
                     else:
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
-
-                        # print p_alt, fragment.readA
-
                         alt_span += p_alt
 
                 # tally spanning reference pairs
                 # NOTE: perhaps amend this for inversions. need to prevent events that span
                 # an entire small inversion from being counted as reference
-                ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ciA,
-                                                           chromA, posA, ref_ciA,
-                                                           False, True,
-                                                           min_aligned,
-                                                           fragment.lib)
-                ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ciB,
-                                                           chromB, posB, ref_ciB,
-                                                           False, True,
-                                                           min_aligned,
-                                                           fragment.lib)
+                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd and alt_seq < 1:
+                    ref_straddle_A = False
+                    ref_straddle_B = False
+                else:
+                    ref_straddle_A = fragment.is_pair_straddle(chromA, posA, ref_ciA,
+                                                               chromA, posA, ref_ciA,
+                                                               False, True,
+                                                               min_aligned,
+                                                               fragment.lib)
+                    ref_straddle_B = fragment.is_pair_straddle(chromB, posB, ref_ciB,
+                                                               chromB, posB, ref_ciB,
+                                                               False, True,
+                                                               min_aligned,
+                                                               fragment.lib)
                 
                 if ref_straddle_A or ref_straddle_B:
                     # don't allow the pair to jump the entire variant, except for
@@ -1408,6 +1479,8 @@ def sv_genotype(bam_string,
                     if not (ref_straddle_A and ref_straddle_B) or svtype == 'DEL':
                         p_conc = fragment.p_concordant(var_length)
                         if p_conc is not None:
+                            # print read
+                            # print 'p_conc', p_conc
                             p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
 
@@ -1534,10 +1607,9 @@ def main():
                 args.split_weight,
                 args.disc_weight,
                 args.num_samp,
-                args.lib_info_infile,
+                args.lib_info_path,
                 args.debug,
-                args.bam_outpath,
-                args.lib_info_outfile)
+                args.bam_outpath)
 
 # initialize the script
 if __name__ == '__main__':
