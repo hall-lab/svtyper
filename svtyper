@@ -1045,37 +1045,40 @@ class SplitRead(object):
         if self.query_left.chrom != chrom_left or self.query_right.chrom != chrom_right:
             return False
 
+        left_split = True
+        right_split = True
+
         ''' Check left side of variant '''
         # left side of variant is negative strand
         if is_reverse_left:
             if self.query_left.reference_start > pos_left + split_slop:
-                return False
+                left_split = False
             if self.query_left.reference_start < pos_left - split_slop:
-                return False
+                left_split = False
 
         # left side of variant is positive strand
         else:
             if self.query_left.reference_end > pos_left + split_slop:
-                return False
+                left_split = False
             if self.query_left.reference_end < pos_left - split_slop:
-                return False
+                left_split = False
 
         ''' Check right side of variant '''
         # right side of variant is negative strand
         if is_reverse_right:
             if self.query_right.reference_start > pos_right + split_slop:
-                return False
+                right_split = False
             if self.query_right.reference_start < pos_right - split_slop:
-                return False
+                right_split = False
 
         # right side of variant is positive strand
         else:
             if self.query_right.reference_end < pos_right - split_slop:
-                return False
+                right_split = False
             if self.query_right.reference_end > pos_right + split_slop:
-                return False
+                right_split = False
 
-        return True
+        return right_split or left_split
 
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
