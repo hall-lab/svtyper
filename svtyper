@@ -679,19 +679,23 @@ class Sample(object):
         rg_to_lib = {}
         lib_dict = {}
 
-        for i in xrange(len(lib_info[name]['libraryArray'])):
-            lib = lib_info[name]['libraryArray'][i]
-            lib_name = lib['library_name']
+        try:
+            for i in xrange(len(lib_info[name]['libraryArray'])):
+                lib = lib_info[name]['libraryArray'][i]
+                lib_name = lib['library_name']
 
-            # make library object
-            lib_dict[lib_name] = Library.from_lib_info(name,
-                                                       i,
-                                                       bam,
-                                                       lib_info)
+                # make library object
+                lib_dict[lib_name] = Library.from_lib_info(name,
+                                                           i,
+                                                           bam,
+                                                           lib_info)
 
-            # make a map from readgroup IDs to library objects
-            for rg in lib['readgroups']:
-                rg_to_lib[rg] = lib_dict[lib_name]
+                # make a map from readgroup IDs to library objects
+                for rg in lib['readgroups']:
+                    rg_to_lib[rg] = lib_dict[lib_name]
+        except KeyError:
+            sys.stderr.write('\nError: sample %s not found in JSON library file.\n' % name)
+            exit(1)
 
         return cls(name,
                    bam,
