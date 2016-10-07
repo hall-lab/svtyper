@@ -22,8 +22,8 @@ SVTyper performs breakpoint genotyping of structural variants (SVs) using whole 
 ## Installation
 
 Requirements
-- Python 2.7 (or newer)
-- Pysam 0.8.1 (or newer)
+- Python 2.7 or newer
+- Pysam 0.8.1 or newer
 
 Clone the repository
 ```

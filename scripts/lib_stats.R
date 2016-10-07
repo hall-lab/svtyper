@@ -25,6 +25,11 @@ if (is.na(file) || is.na(output)) {
     quit(save='no', status=1)
 }
 
+# install R packages if needed
+options(repos=structure(c(CRAN="http://cran.wustl.edu")))
+list.of.packages <- c("jsonlite")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
 library(jsonlite)
 
 bam <- fromJSON(file)
