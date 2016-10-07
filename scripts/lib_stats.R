@@ -29,7 +29,7 @@ library(jsonlite)
 
 bam <- fromJSON(file)
 
-pdf(output, h=8, w=8)
+pdf(output, h=6, w=8)
 for (sample in bam) {
     ins <- as.data.frame(t(sample$libraryArray$histogram))
     
