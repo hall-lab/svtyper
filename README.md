@@ -56,7 +56,7 @@ The [lib_stats.R](scripts/lib_stats.R) script produces insert size histograms fr
 ```sh
 scripts/lib_stats.R my.bam.json my.bam.json.pdf
 ```
-![Insert size histogram](etc/my.bam.json.pdf?raw=true "Insert size histogram")
+![Insert size histogram](etc/my.bam.json.png?raw=true "Insert size histogram")
 
 
 ## Citation
