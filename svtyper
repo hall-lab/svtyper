@@ -22,6 +22,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-i', '--input_vcf', metavar='FILE', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', metavar='FILE',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-B', '--bam', metavar='FILE', type=str, required=True, help='BAM or CRAM file(s), comma-separated if genotyping multiple samples')
+    parser.add_argument('-S', '--split_bam', type=str, required=False, help=argparse.SUPPRESS)
     parser.add_argument('-l', '--lib_info', metavar='FILE', dest='lib_info_path', type=str, required=False, default=None, help='create/read JSON file of library information')
     parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
@@ -180,7 +181,7 @@ class Variant(object):
 
         # fill in empty sample genotypes
         if len(var_list) < 8:
-            sys.stderr.write('\nError: VCF file must have at least 8 columns\n')
+            sys.stderr.write('Error: VCF file must have at least 8 columns\n')
             exit(1)
         if len(var_list) < 9:
             var_list.append("GT")
@@ -207,7 +208,7 @@ class Variant(object):
         if field in [i.id for i in self.info_list]:
             self.info[field] = value
         else:
-            sys.stderr.write('\nError: invalid INFO field, \"' + field + '\"\n')
+            sys.stderr.write('Error: invalid INFO field, \"' + field + '\"\n')
             exit(1)
 
     def get_info(self, field):
@@ -234,7 +235,7 @@ class Variant(object):
         if sample_name in self.sample_list:
             return self.gts[sample_name]
         else:
-            sys.stderr.write('\nError: invalid sample name, \"' + sample_name + '\"\n')
+            sys.stderr.write('Error: invalid sample name, \"' + sample_name + '\"\n')
 
     def get_var_string(self):
         s = '\t'.join(map(str,[
@@ -265,7 +266,7 @@ class Genotype(object):
                 # sort it to be in the same order as the format_list in header
                 self.variant.active_formats.sort(key=lambda x: [f.id for f in self.variant.format_list].index(x))
         else:
-            sys.stderr.write('\nError: invalid FORMAT field, \"' + field + '\"\n')
+            sys.stderr.write('Error: invalid FORMAT field, \"' + field + '\"\n')
             exit(1)
 
     def get_format(self, field):
@@ -601,8 +602,8 @@ class Library(object):
                 break
 
         if len(valueCounts) == 0:
-            sys.stderr.write('\nError: failed to build insert size histogram for paired-end reads.\n\
-Please ensure BAM file (%s) has inward facing, paired-end reads.\n\n' % self.bam.filename)
+            sys.stderr.write('Error: failed to build insert size histogram for paired-end reads.\n\
+Please ensure BAM file (%s) has inward facing, paired-end reads.\n' % self.bam.filename)
             exit(1)
 
         # remove outliers
@@ -679,7 +680,7 @@ class Sample(object):
                 for rg in lib['readgroups']:
                     rg_to_lib[rg] = lib_dict[lib_name]
         except KeyError:
-            sys.stderr.write('\nError: sample %s not found in JSON library file.\n' % name)
+            sys.stderr.write('Error: sample %s not found in JSON library file.\n' % name)
             exit(1)
 
         return cls(name,
@@ -1206,10 +1207,10 @@ def sv_genotype(bam_string,
         lib_info = json.load(lib_info_file)
 
     if vcf_in is None:
-        sys.stderr.write('\nWarning: VCF not found.\n')
+        sys.stderr.write('Warning: VCF not found.\n')
 
     # build the sample libraries, either from the lib_info JSON or empirically from the BAMs
-    sys.stderr.write('\nCalculating library statistics...')
+    sys.stderr.write('Calculating library statistics...')
     sample_list = list()
     for i in xrange(len(bam_list)):
         if lib_info is None:
@@ -1296,7 +1297,7 @@ def sv_genotype(bam_string,
 
         # print original line if unsupported svtype
         if svtype not in ('BND', 'DEL', 'DUP', 'INV'):
-            sys.stderr.write('\nWarning: Unsupported SV type at variant %s (%s). Skipping.\n' % (var.var_id, svtype))
+            sys.stderr.write('Warning: Unsupported SV type at variant %s (%s). Skipping.\n' % (var.var_id, svtype))
             vcf_out.write(var.get_var_string() + '\n')
             continue
         
@@ -1579,6 +1580,9 @@ def sv_genotype(bam_string,
 def main():
     # parse the command line args
     args = get_args()
+
+    if args.split_bam is not None:
+        sys.stderr.write('Warning: --split_bam (-S) is deprecated. Ignoring %s.\n' % args.split_bam)
 
     # call primary function
     sv_genotype(args.bam,
