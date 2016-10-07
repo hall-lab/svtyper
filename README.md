@@ -7,7 +7,7 @@ Bayesian genotyper for structural variants
 
 ## Example
 
-```sh
+```
 svtyper \
     -i sv.vcf \
     -B sample.bam \
@@ -26,12 +26,12 @@ Requirements
 - Pysam 0.8.1 (or newer)
 
 Clone the repository
-```sh
+```
 git clone git@github.com:hall-lab/svtyper.git
 ```
 
 Test the installation
-```sh
+```
 cd svtyper/test
 
 ../svtyper \
@@ -46,14 +46,14 @@ cd svtyper/test
 Many common issues are related to abnormal insert size distributions of read-pairs in the BAM file. SVTyper provides methods to assess and visualize the characterstics of sequencing libraries.
 
 Running SVTyper with the `-l` flag creates a JSON file with essential metrics on a BAM file. SVTyper will sample the first N reads for the file (1 million by default) to parse the libraries, read groups, and insert size histograms. This can be done in the absence of a VCF file.
-```sh
+```
 svtyper \
     -B my.bam \
     -l my.bam.json
 ```
 
 The [lib_stats.R](scripts/lib_stats.R) script produces insert size histograms from the JSON file
-```sh
+```
 scripts/lib_stats.R my.bam.json my.bam.json.pdf
 ```
 ![Insert size histogram](etc/my.bam.json.png?raw=true "Insert size histogram")
