@@ -21,13 +21,13 @@ version: " + __version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-i', '--input_vcf', metavar='VCF', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', metavar='VCF',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM file(s), comma-separated if genotyping multiple BAMs')
+    parser.add_argument('-B', '--bam', metavar='BAM', type=str, required=True, help='BAM or CRAM file(s), comma-separated if genotyping multiple samples')
     parser.add_argument('-l', '--lib_info', metavar='JSON', dest='lib_info_path', type=str, required=False, default=None, help='input JSON file of library information (create from BAM if file does not exist)')
     parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
-    parser.add_argument('-wb', '--write_bam', metavar='FILE', dest='bam_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
+    parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
     parser.add_argument('--debug', action='store_true', help='debugging verbosity')
 
     # parse the arguments
@@ -289,8 +289,8 @@ class Genotype(object):
 
 # write read to BAM file, checking whether read is already written
 def write_read(read, bam, written_reads):
-    read.seq = "*"
-    read.qual = "*"
+    # read.seq = "*"
+    # read.qual = "*"
     read_hash = (read.query_name, read.flag, read.cigarstring)
 
     if bam is None or read_hash in written_reads:
@@ -1213,7 +1213,7 @@ def sv_genotype(bam_string,
                 num_samp,
                 lib_info_path,
                 debug,
-                bam_outpath):
+                alignment_outpath):
 
     # parse the comma separated inputs
     bam_list = [pysam.AlignmentFile(b, 'rb') for b in bam_string.split(',')]
@@ -1243,11 +1243,11 @@ def sv_genotype(bam_string,
     sys.stderr.write(' done\n')
 
     # diagnostic dump of relevant BAM reads
-    if bam_outpath is not None:
+    if alignment_outpath is not None:
         # create a BAM file of the reads used for genotyping
         out_bam_written_reads = set()
         template_bam = pysam.AlignmentFile(bam_string.split(',')[0], 'rb')
-        out_bam = pysam.AlignmentFile(bam_outpath, 'wb', template_bam)
+        out_bam = pysam.AlignmentFile(alignment_outpath, 'wb', template_bam)
         template_bam.close()
 
     # write the JSON for each sample's libraries
@@ -1259,7 +1259,7 @@ def sv_genotype(bam_string,
 
     # quit early if VCF absent
     if vcf_in is None:
-        if bam_outpath is not None:
+        if alignment_outpath is not None:
             out_bam.close()
         return
 
@@ -1388,7 +1388,7 @@ def sv_genotype(bam_string,
                 # get reference sequences
                 for read in fragment.primary_reads:
                     # write to BAM if requested
-                    if bam_outpath is not None:
+                    if alignment_outpath is not None:
                         out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
 
                     is_ref = False
@@ -1587,7 +1587,7 @@ def sv_genotype(bam_string,
     # close the files
     vcf_in.close()
     vcf_out.close()
-    if bam_outpath is not None:
+    if alignment_outpath is not None:
         out_bam.close()
 
     return
@@ -1609,7 +1609,7 @@ def main():
                 args.num_samp,
                 args.lib_info_path,
                 args.debug,
-                args.bam_outpath)
+                args.alignment_outpath)
 
 # initialize the script
 if __name__ == '__main__':
