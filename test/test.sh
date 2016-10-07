@@ -7,7 +7,7 @@
 #     -i example.vcf \
 #     -B $BAM \
 #     -l $BAM_BASE.bam.json \
-#     -wb $BAM_BASE.target_loci.bam \
+#     -w $BAM_BASE.target_loci.bam \
 #     > example.gt.vcf
 #
 # sambamba sort NA12878.target_loci.bam
