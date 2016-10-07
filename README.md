@@ -43,7 +43,7 @@ cd svtyper/test
 
 ## Troubleshooting
 
-Many common issues are related to abnormal insert size distributions of read-pairs in the BAM file. SVTyper provides methods to assess and visualize the characterstics of sequencing libraries.
+Many common issues are related to abnormal insert size distributions in the BAM file. SVTyper provides methods to assess and visualize the characteristics of sequencing libraries.
 
 Running SVTyper with the `-l` flag creates a JSON file with essential metrics on a BAM file. SVTyper will sample the first N reads for the file (1 million by default) to parse the libraries, read groups, and insert size histograms. This can be done in the absence of a VCF file.
 ```
