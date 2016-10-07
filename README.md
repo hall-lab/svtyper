@@ -15,15 +15,25 @@ svtyper \
     > sv.gt.vcf
 ```
 
+## Overview
+
+SVTyper performs breakend genotyping of structural variants using paired-end and split-read alignments from BWA-MEM.
+
 ## Installation
+
+### Requirements
+- Python 2.7 (or newer)
+- Pysam 0.8.1 (or newer)
+
+Clone the repository
 
 ```sh
 git clone git@github.com:hall-lab/svtyper.git
 ```
 
-## Testing
+Test the installation
 
-```
+```sh
 cd svtyper/test
 
 ../svtyper \
