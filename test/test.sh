@@ -17,6 +17,6 @@
     -i example.vcf \
     -B NA12878.target_loci.sorted.bam \
     -l NA12878.bam.json \
-    > test.vcf
+    > out.vcf
 
-diff -I '^##fileDate=' example.gt.vcf test.vcf
+diff -I '^##fileDate=' example.gt.vcf out.vcf
