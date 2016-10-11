@@ -25,16 +25,21 @@ if (is.na(file) || is.na(output)) {
     quit(save='no', status=1)
 }
 
+# install R packages if needed
+options(repos=structure(c(CRAN="http://cran.wustl.edu")))
+list.of.packages <- c("jsonlite")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
 library(jsonlite)
 
 bam <- fromJSON(file)
 
-pdf(output, h=8, w=8)
+pdf(output, h=6, w=8)
 for (sample in bam) {
     ins <- as.data.frame(t(sample$libraryArray$histogram))
     
     for (i in 1:ncol(ins)) {
-        plot(as.numeric(row.names(ins)), ins[,i], type='h', xlab='Insert size', ylab='Number of read-pairs', main=paste0('LB: ', sample$libraryArray$library_name[i], '\nprevalence: ', round(100*sample$libraryArray$prevalence[i],1), "%"), col='steelblue', bty='l')
+        plot(as.numeric(row.names(ins)), ins[,i], type='h', xlab='Insert size (bp)', ylab='Number of read-pairs', main=paste0('LB: ', sample$libraryArray$library_name[i], '\nprevalence: ', round(100*sample$libraryArray$prevalence[i],1), "%"), col='steelblue', bty='l')
         abline(v=sample$libraryArray$mean[i], col='red', lty=1)
         legend('topright', c(paste0('mean: ', round(sample$libraryArray$mean[i],1)), paste0('sd: ', round(sample$libraryArray$sd[i],1))), lty=c(1, 0), col=c('red'))
     }
