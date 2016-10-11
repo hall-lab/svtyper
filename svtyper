@@ -289,10 +289,9 @@ class Genotype(object):
 # ==================================================
 
 # write read to BAM file, checking whether read is already written
-def write_read(read, bam, written_reads):
-    # read.seq = "*"
-    # read.qual = "*"
-    read_hash = (read.query_name, read.flag, read.cigarstring)
+def write_alignment(read, bam, written_reads, is_alt=None):
+    read.query_sequence = None
+    read_hash = (read.query_name, read.flag)
 
     if bam is None or read_hash in written_reads:
         return written_reads
@@ -764,6 +763,7 @@ class SamFragment(object):
         self.split_reads = []
         self.read_set = set()
         self.num_primary = 0
+        self.query_name = read.query_name
 
         self.readA = None
         self.readB = None
@@ -793,6 +793,20 @@ class SamFragment(object):
             # complete set of primaries
             if self.num_primary == 2:
                 self.readA, self.readB = self.primary_reads
+
+    # tag the read with R (ref), A (alt), or U (unknown) XV tag
+    def tag_span(self, p_alt=None):
+        if p_alt is None:
+            value = 'U'
+        elif p_alt > 0:
+            value = 'A'
+        else:
+            value = 'R'
+        for read in self.primary_reads:
+            if not read.has_tag('XV'):
+                read.set_tag('XV', value)
+
+        return
 
     # get inner span
     def get_ispan(self, min_aligned):
@@ -1068,6 +1082,20 @@ class SplitRead(object):
                 right_split = False
 
         return right_split or left_split
+
+    # tag the read with R (ref), A (alt), or U (unknown) XV tag
+    def tag_split(self, p_alt=None):
+        if p_alt is None:
+            value = 'U'
+        elif p_alt > 0:
+            value = 'A'
+        else:
+            value = 'R'
+        
+        self.read.set_tag('XV', value)
+
+        return
+
 
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
@@ -1365,26 +1393,28 @@ def sv_genotype(bam_string,
             ref_ciB = [0,0]
 
             for fragment in read_batch.values():
+                # boolean on whether to write the fragment
+                write_fragment = False
+
                 # -------------------------------------
                 # Check for split-read evidence
                 # -------------------------------------
 
                 # get reference sequences
                 for read in fragment.primary_reads:
-                    # write to BAM if requested
-                    if alignment_outpath is not None:
-                        out_bam_written_reads = write_read(read, out_bam, out_bam_written_reads)
-
                     is_ref = False
                     if ((read.reference_start <= posA - min_aligned
-                           and read.reference_end >= posA + min_aligned)
-                          or (read.reference_start <= posB - min_aligned
-                              and read.reference_end >= posB + min_aligned)):
+                         and read.reference_end >= posA + min_aligned)
+                        or (read.reference_start <= posB - min_aligned
+                            and read.reference_end >= posB + min_aligned)):
                         is_ref = True
 
                     if is_ref:
                         p_reference = prob_mapq(read)
                         ref_seq += p_reference / 2
+
+                        read.set_tag('XV', 'R')
+                        write_fragment = True
 
                 # get non-reference split-read support
                 for split in fragment.split_reads:
@@ -1395,12 +1425,15 @@ def sv_genotype(bam_string,
                         p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
                         alt_seq += p_alt
 
+                        split.tag_split(p_alt)
+                        write_fragment = True
+
                 # -------------------------------------
                 # Check for paired-end evidence
                 # -------------------------------------
-                                    
+                
                 # tally spanning alternate pairs
-                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd and alt_seq < 1:
+                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd:
                     alt_straddle = False
                 else:
                     alt_straddle = fragment.is_pair_straddle(chromA, posA, ciA,
@@ -1423,9 +1456,6 @@ def sv_genotype(bam_string,
                 if alt_straddle or alt_straddle_reciprocal:
                     if svtype == 'DEL':
                         p_conc = fragment.p_concordant(var_length)
-                        # print read.query_name, p_conc
-                        # if not p_conc:
-                        #     print read
                         if p_conc is not None:
                             p_alt = (1 - p_conc) * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             alt_span += p_alt
@@ -1435,14 +1465,19 @@ def sv_genotype(bam_string,
                             # p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             # ref_span += p_reference
                             # continue
+
+                            fragment.tag_span(p_alt)
+                            write_fragment = True
+
                     else:
                         p_alt = prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                         alt_span += p_alt
 
-                # tally spanning reference pairs
-                # NOTE: perhaps amend this for inversions. need to prevent events that span
-                # an entire small inversion from being counted as reference
-                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd and alt_seq < 1:
+                        fragment.tag_span(p_alt)
+                        write_fragment = True
+
+                # # tally spanning reference pairs
+                if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd:
                     ref_straddle_A = False
                     ref_straddle_B = False
                 else:
@@ -1456,17 +1491,23 @@ def sv_genotype(bam_string,
                                                                False, True,
                                                                min_aligned,
                                                                fragment.lib)
-                
+
                 if ref_straddle_A or ref_straddle_B:
                     # don't allow the pair to jump the entire variant, except for
                     # length-changing SVs like deletions
                     if not (ref_straddle_A and ref_straddle_B) or svtype == 'DEL':
                         p_conc = fragment.p_concordant(var_length)
                         if p_conc is not None:
-                            # print read
-                            # print 'p_conc', p_conc
                             p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
+                            
+                            fragment.tag_span(1 - p_conc)
+                            write_fragment = True
+
+                # write to BAM if requested
+                if alignment_outpath is not None and  write_fragment:
+                    for read in fragment.primary_reads + [split.read for split in fragment.split_reads]:
+                        out_bam_written_reads = write_alignment(read, out_bam, out_bam_written_reads)
 
             if debug:
                 print '--------------------------'
