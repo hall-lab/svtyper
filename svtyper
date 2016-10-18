@@ -29,7 +29,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
-    parser.add_argument('--debug', action='store_true', help='debugging verbosity')
+    parser.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
 
     # parse the arguments
     args = parser.parse_args()
@@ -352,9 +352,9 @@ def log_choose(n, k):
 def bayes_gt(ref, alt, is_dup):
     # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
     if is_dup: # specialized logic to handle non-destructive events such as duplications
-        p_alt = [1e-4, 1/3.0, 0.5]
+        p_alt = [1e-3, 1/3.0, 0.5]
     else:
-        p_alt = [1e-4, 0.5, 0.9]
+        p_alt = [1e-3, 0.5, 0.9]
 
     total = ref + alt
     log_combo = log_choose(total, alt)
@@ -822,6 +822,25 @@ class SamFragment(object):
 
         return (ospan1, ospan2)
 
+    # returns boolean of whether a single read crosses
+    # a genomic reference point with appropriate flanking
+    # sequence
+    def is_ref_seq(self,
+                   read,
+                   chrom, pos, ci,
+                   min_aligned):
+        # check chromosome matching
+        # Note: this step is kind of slow
+        if read.reference_name != chrom:
+            return False
+
+        # ensure there is min_aligned on both sides of position
+        if read.get_overlap(pos - min_aligned, pos + min_aligned) < 2 * min_aligned:
+            return False
+
+        return True
+
+
     # returns boolean of whether the primary pair of a
     # fragment straddles a genomic point
     def is_pair_straddle(self,
@@ -832,18 +851,18 @@ class SamFragment(object):
                          lib):
         if self.num_primary != 2:
             return False
-        
+
         # check orientation
-        elif self.readA.is_reverse != o1_is_reverse:
+        if self.readA.is_reverse != o1_is_reverse:
             return False
-        elif self.readB.is_reverse != o2_is_reverse:
+        if self.readB.is_reverse != o2_is_reverse:
             return False
 
         # check chromosome matching
         # Note: this step is kind of slow
-        elif self.readA.reference_name != chromA:
+        if self.readA.reference_name != chromA:
             return False
-        elif self.readB.reference_name != chromB:
+        if self.readB.reference_name != chromB:
             return False
 
         # get the inner span
@@ -853,14 +872,14 @@ class SamFragment(object):
         flank = lib.mean + lib.sd * 3
         if not o1_is_reverse and (ispan[0] > posA + ciA[1] or ispan[0] < posA + ciA[0] - flank):
             return False
-        elif o1_is_reverse and (ispan[0] < posA + ciA[0] or ispan[0] > posA + ciA[1] + flank):
+        if o1_is_reverse and (ispan[0] < posA + ciA[0] or ispan[0] > posA + ciA[1] + flank):
             return False
-        elif not o2_is_reverse and (ispan[1] > posB + ciB[1] or ispan[1] < posB + ciB[0] - flank):
+        if not o2_is_reverse and (ispan[1] > posB + ciB[1] or ispan[1] < posB + ciB[0] - flank):
             return False
-        elif o2_is_reverse and (ispan[1] < posB + ciB[0] or ispan[1] > posB + ciB[1] + flank):
+        if o2_is_reverse and (ispan[1] < posB + ciB[0] or ispan[1] > posB + ciB[1] + flank):
             return False
-        else:
-            return True
+
+        return True
     
     # calculate the probability that a read pair is concordant at a breakpoint,
     # given the putative variant size and insert distribution of the library.
@@ -1044,12 +1063,15 @@ class SplitRead(object):
             ci_right = ciB
             is_reverse_right = o2_is_reverse
 
-        # bail is chromosomes don't match variant
-        if self.query_left.chrom != chrom_left or self.query_right.chrom != chrom_right:
-            return False
 
         left_split = True
         right_split = True
+
+        # check split chromosomes against variant
+        if self.query_left.chrom != chrom_left:
+            left_split = False
+        if self.query_right.chrom != chrom_right:
+            right_split = False
 
         ''' Check left side of variant '''
         # left side of variant is negative strand
@@ -1081,7 +1103,7 @@ class SplitRead(object):
             if self.query_right.reference_end > pos_right + split_slop:
                 right_split = False
 
-        return right_split or left_split
+        return (left_split, right_split)
 
     # tag the read with R (ref), A (alt), or U (unknown) XV tag
     def tag_split(self, p_alt=None):
@@ -1409,22 +1431,27 @@ def sv_genotype(bam_string,
                             and read.reference_end >= posB + min_aligned)):
                         is_ref = True
 
-                    if is_ref:
+                    if (fragment.is_ref_seq(read, chromA, posA, ciA, min_aligned)
+                        or fragment.is_ref_seq(read, chromB, posB, ciB, min_aligned)):
+
                         p_reference = prob_mapq(read)
-                        ref_seq += p_reference / 2
+                        ref_seq += p_reference
 
                         read.set_tag('XV', 'R')
                         write_fragment = True
 
                 # get non-reference split-read support
                 for split in fragment.split_reads:
-                    if split.is_split_straddle(chromA, posA, ciA,
-                                               chromB, posB, ciB,
-                                               o1_is_reverse, o2_is_reverse,
-                                               split_slop):
-                        p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
-                        alt_seq += p_alt
 
+                    split_lr = split.is_split_straddle(chromA, posA, ciA,
+                                                       chromB, posB, ciB,
+                                                       o1_is_reverse, o2_is_reverse,
+                                                       split_slop)
+                    # p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
+                    p_alt = (prob_mapq(split.query_left) * split_lr[0] + prob_mapq(split.query_right) * split_lr[1]) / 2.0
+                    alt_seq += p_alt
+
+                    if p_alt > 0:
                         split.tag_split(p_alt)
                         write_fragment = True
 
