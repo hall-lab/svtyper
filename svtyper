@@ -1424,13 +1424,6 @@ def sv_genotype(bam_string,
 
                 # get reference sequences
                 for read in fragment.primary_reads:
-                    is_ref = False
-                    if ((read.reference_start <= posA - min_aligned
-                         and read.reference_end >= posA + min_aligned)
-                        or (read.reference_start <= posB - min_aligned
-                            and read.reference_end >= posB + min_aligned)):
-                        is_ref = True
-
                     if (fragment.is_ref_seq(read, chromA, posA, ciA, min_aligned)
                         or fragment.is_ref_seq(read, chromB, posB, ciB, min_aligned)):
 
