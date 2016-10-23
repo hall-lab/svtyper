@@ -18,6 +18,8 @@ class TestCigarParsing(TestCase):
         self.assertEqual(query_pos.query_end, 13)
         self.assertEqual(query_pos.query_length, 15)
 
+        # get_query_pos_from_cigar currently modifies the cigar list in place.
+        # that's why the code below doesn't work as intended.
         query_pos = get_query_pos_from_cigar(cigar, False)
         self.assertEqual(query_pos.query_start, 2)
         self.assertEqual(query_pos.query_end, 12)
@@ -38,11 +40,11 @@ class TestCigarParsing(TestCase):
     def test_get_end_diagonal(self):
         cigar_string = '2S5M3D2I1M3S'
         split_piece = SplitRead.SplitPiece(1, 25, True, cigarstring_to_tuple(cigar_string), 60)
-        split_piece.set_reference_end(33)
-        self.assertEqual(get_end_diagonal(split_piece), 33 - (2 + 8 - 1))
+        split_piece.set_reference_end(34)
+        self.assertEqual(get_end_diagonal(split_piece), 34 - (2 + 8))
         split_piece2 = SplitRead.SplitPiece(1, 25, False, cigarstring_to_tuple(cigar_string), 60)
-        split_piece2.set_reference_end(33)
-        self.assertEqual(get_start_diagonal(split_piece2), 24)
+        split_piece2.set_reference_end(34)
+        self.assertEqual(get_start_diagonal(split_piece2), 32 - (2 + 8))
 
 if __name__ == '__main__':
     unittest.main()
