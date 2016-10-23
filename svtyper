@@ -1143,6 +1143,10 @@ def get_end_diagonal(split_piece):
     return split_piece.reference_end - query_align
 
 def get_reference_end_from_cigar(reference_start, cigar):
+    '''
+    This returns the coordinate just past the last aligned base.
+    This matches the behavior of pysam's reference_end method
+    '''
     reference_end = reference_start
 
     # iterate through cigartuple
