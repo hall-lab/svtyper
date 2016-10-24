@@ -1134,13 +1134,18 @@ def cigarstring_to_tuple(cigarstring):
 # reference position where the alignment would have started
 # if the entire query sequence would have aligned
 def get_start_diagonal(split_piece):
-    return split_piece.reference_start - split_piece.query_pos.query_start
+    sclip = split_piece.query_pos.query_start
+    if split_piece.is_reverse:
+        sclip = split_piece.query_pos.query_length - split_piece.query_pos.query_end
+    return split_piece.reference_start - sclip
 
 # reference position where the alignment would have ended
 # if the entire query sequence would have aligned
 def get_end_diagonal(split_piece):
-    query_align = split_piece.query_pos.query_end - split_piece.query_pos.query_start
-    return split_piece.reference_end - query_align
+    query_aligned = split_piece.query_pos.query_end
+    if split_piece.is_reverse:
+        query_aligned = split_piece.query_pos.query_length - split_piece.query_pos.query_start
+    return split_piece.reference_end - query_aligned
 
 def get_reference_end_from_cigar(reference_start, cigar):
     '''
