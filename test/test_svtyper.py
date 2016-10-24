@@ -47,4 +47,5 @@ class TestCigarParsing(unittest.TestCase):
         self.assertEqual(get_end_diagonal(split_piece2), 34 - (2 + 8))
 
 if __name__ == '__main__':
-    unittest.main()
+    suite =  unittest.TestLoader().loadTestsFromTestCase(TestCigarParsing)
+    unittest.TextTestRunner(verbosity=2).run(suite)
