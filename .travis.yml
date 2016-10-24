@@ -21,7 +21,8 @@ install:
   - source activate test-environment
 
 script:
-    - cd test && ./test.sh && python test_svtyper.py
+    - cd test && ./test.sh
+    - python test_svtyper.py
 
 # # command to install dependencies
 # install:
