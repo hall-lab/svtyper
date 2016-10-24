@@ -44,7 +44,7 @@ class TestCigarParsing(TestCase):
         self.assertEqual(get_end_diagonal(split_piece), 34 - (2 + 8))
         split_piece2 = SplitRead.SplitPiece(1, 25, False, cigarstring_to_tuple(cigar_string), 60)
         split_piece2.set_reference_end(34)
-        self.assertEqual(get_start_diagonal(split_piece2), 32 - (2 + 8))
+        self.assertEqual(get_end_diagonal(split_piece2), 34 - (2 + 8))
 
 if __name__ == '__main__':
     unittest.main()
