@@ -1,7 +1,7 @@
-from unittest import TestCase
+import unittest
 from svtyper import *
 
-class TestCigarParsing(TestCase):
+class TestCigarParsing(unittest.TestCase):
     def test_cigarstring_to_tuple(self):
         string1 = '5H3S2D1N5M3I2P2X1='
         self.assertEqual(cigarstring_to_tuple(string1),
