@@ -835,7 +835,7 @@ class SamFragment(object):
             return False
 
         # ensure there is min_aligned on both sides of position
-        if read.get_overlap(pos - min_aligned, pos + min_aligned) < 2 * min_aligned:
+        if read.get_overlap(max(0, pos - min_aligned), pos + min_aligned) < 2 * min_aligned:
             return False
 
         return True
