@@ -22,6 +22,7 @@ install:
 
 script:
     - cd test && ./test.sh
+    - python test_svtyper.py
 
 # # command to install dependencies
 # install:
