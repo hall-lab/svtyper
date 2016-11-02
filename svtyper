@@ -989,7 +989,7 @@ class SplitRead(object):
             self.query_left = b
             self.query_right = a
         else:
-            if is_clip(a.cigar[0]):
+            if is_left_clip(a.cigar):
                 self.query_left = b
                 self.query_right = a
             else:
@@ -1135,8 +1135,16 @@ def cigarstring_to_tuple(cigarstring):
     paired = (values[n:n+2] for n in xrange(0, len(values), 2)) ## pair values by twos
     return [(cigar_dict[pair[1]], int(pair[0])) for pair in paired]
 
-def is_clip(cigar_tuple):
-    return cigar_tuple[0] == 4 or cigar_tuple[0] == 5
+def is_left_clip(cigar):
+    left_tuple = cigar[0]
+    right_tuple = cigar[-1]
+    left_clipped = is_clip_op(left_tuple[0])
+    right_clipped = is_clip_op(right_tuple[0])
+
+    return (left_clipped and not right_clipped) or (left_clipped and right_clipped and left_tuple[1] > right_tuple[1])
+
+def is_clip_op(op):
+    return op == 4 or op == 5
 
 # reference position where the alignment would have started
 # if the entire query sequence would have aligned
