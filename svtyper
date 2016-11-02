@@ -989,8 +989,12 @@ class SplitRead(object):
             self.query_left = b
             self.query_right = a
         else:
-            self.query_left = a
-            self.query_right = b
+            if is_clip(a.cigar[0]):
+                self.query_left = b
+                self.query_right = a
+            else:
+                self.query_left = a
+                self.query_right = b
 
         # check non-overlap
         if self.non_overlap() < min_non_overlap:
@@ -1130,6 +1134,9 @@ def cigarstring_to_tuple(cigarstring):
     values = pattern.split(cigarstring)[:-1] ## turn cigar into tuple of values
     paired = (values[n:n+2] for n in xrange(0, len(values), 2)) ## pair values by twos
     return [(cigar_dict[pair[1]], int(pair[0])) for pair in paired]
+
+def is_clip(cigar_tuple):
+    return cigar_tuple[0] == 4 or cigar_tuple[0] == 5
 
 # reference position where the alignment would have started
 # if the entire query sequence would have aligned
