@@ -952,6 +952,31 @@ class SplitRead(object):
                  max_unmapped_bases = 50):
         # check for SA tag
         if not self.read.has_tag('SA'):
+            if is_clip_op(self.read.cigar[0][0]) or is_clip_op(self.read.cigar[-1][0]):
+                clip_length = max(self.read.cigar[0][1] * is_clip_op(self.read.cigar[0][0]), self.read.cigar[-1][1] * is_clip_op(self.read.cigar[-1][0]))
+                if clip_length > 0 and (self.read.query_length - self.read.reference_length) <= max_unmapped_bases:
+                    a = self.SplitPiece(self.read.reference_name,
+                                        self.read.reference_start,
+                                        self.read.is_reverse,
+                                        self.read.cigar,
+                                        self.read.mapping_quality)
+                    a.set_reference_end(self.read.reference_end)
+                    b = self.SplitPiece(None,
+                                        1,
+                                        self.read.is_reverse,
+                                        self.read.cigar,
+                                        0)
+                    b.set_reference_end(1)
+                    if is_left_clip(a.cigar):
+                        self.query_left = b
+                        self.query_right = a
+                    else:
+                        self.query_left = a
+                        self.query_right = b
+                    return True
+                else:
+                    return False
+
             return False
 
         # parse SA tag
