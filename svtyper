@@ -952,9 +952,11 @@ class SplitRead(object):
                  max_unmapped_bases = 50):
         # check for SA tag
         if not self.read.has_tag('SA'):
+            # Include soft-clipped reads that didn't generate split-read alignments
             if is_clip_op(self.read.cigar[0][0]) or is_clip_op(self.read.cigar[-1][0]):
                 clip_length = max(self.read.cigar[0][1] * is_clip_op(self.read.cigar[0][0]), self.read.cigar[-1][1] * is_clip_op(self.read.cigar[-1][0]))
-                if clip_length > 0 and (self.read.query_length - self.read.reference_length) <= max_unmapped_bases:
+                # Only count if the longest clipping event is greater than the cutoff and we have mapped a reasonable number of bases
+                if clip_length > 0 and (self.read.query_length - self.read.query_alignment_length) <= max_unmapped_bases:
                     a = self.SplitPiece(self.read.reference_name,
                                         self.read.reference_start,
                                         self.read.is_reverse,
@@ -1161,6 +1163,11 @@ def cigarstring_to_tuple(cigarstring):
     return [(cigar_dict[pair[1]], int(pair[0])) for pair in paired]
 
 def is_left_clip(cigar):
+    '''
+    whether the left side of the read (w/ respect to reference) is clipped.
+    Clipping side is determined as the side with the longest clip.
+    Adjacent clipping operations are not considered
+    '''
     left_tuple = cigar[0]
     right_tuple = cigar[-1]
     left_clipped = is_clip_op(left_tuple[0])
@@ -1169,6 +1176,9 @@ def is_left_clip(cigar):
     return (left_clipped and not right_clipped) or (left_clipped and right_clipped and left_tuple[1] > right_tuple[1])
 
 def is_clip_op(op):
+    '''
+    whether the CIGAR OP code represents a clipping event
+    '''
     return op == 4 or op == 5
 
 # reference position where the alignment would have started
