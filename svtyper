@@ -969,12 +969,7 @@ class SplitRead(object):
                                         self.read.cigar,
                                         0)
                     b.set_reference_end(1)
-                    if is_left_clip(a.cigar):
-                        self.query_left = b
-                        self.query_right = a
-                    else:
-                        self.query_left = a
-                        self.query_right = b
+                    self.set_order_by_clip(a, b)
                     return True
                 else:
                     return False
@@ -1016,12 +1011,7 @@ class SplitRead(object):
             self.query_left = b
             self.query_right = a
         else:
-            if is_left_clip(a.cigar):
-                self.query_left = b
-                self.query_right = a
-            else:
-                self.query_left = a
-                self.query_right = b
+            self.set_order_by_clip(a, b)
 
         # check non-overlap
         if self.non_overlap() < min_non_overlap:
@@ -1148,6 +1138,18 @@ class SplitRead(object):
         self.read.set_tag('XV', value)
 
         return
+
+    def set_order_by_clip(self, a, b): 
+        '''
+        Determine which SplitPiece is the leftmost based
+        on the side of the longest clipping operation
+        '''
+        if is_left_clip(a.cigar):
+            self.query_left = b
+            self.query_right = a
+        else:
+            self.query_left = a
+            self.query_right = b
 
 
 # ==================================================
