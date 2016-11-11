@@ -921,6 +921,7 @@ class SplitRead(object):
         self.sa = None
         self.q1 = None
         self.q2 = None
+        self.is_soft_clip = False
 
     # the piece of each split alignemnt
     class SplitPiece(object):
@@ -970,6 +971,7 @@ class SplitRead(object):
                                         0)
                     b.set_reference_end(1)
                     self.set_order_by_clip(a, b)
+                    self.is_soft_clip = True
                     return True
                 else:
                     return False
@@ -1387,6 +1389,7 @@ def sv_genotype(bam_string,
                 vcf.add_format('QA', 'A', 'Integer', 'Sum of quality of alternate observations')
                 vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
                 vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
+                vcf.add_format('AC', 'A', 'Integer', 'Alternate allele clipped-read observation count, with partial observations recorded fractionally')
                 vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
                 vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
                 vcf.add_format('AB', 'A', 'Float', 'Allele balance, fraction of observations from alternate allele, QA/(QR+QA)')
@@ -1469,6 +1472,7 @@ def sv_genotype(bam_string,
             # initialize counts to zero
             ref_span, alt_span = 0, 0
             ref_seq, alt_seq = 0, 0
+            ref_clip, alt_clip = 0,0
 
             # ref_ciA = ciA
             # ref_ciB = ciB
@@ -1503,7 +1507,10 @@ def sv_genotype(bam_string,
                                                        split_slop)
                     # p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
                     p_alt = (prob_mapq(split.query_left) * split_lr[0] + prob_mapq(split.query_right) * split_lr[1]) / 2.0
-                    alt_seq += p_alt
+                    if split.is_soft_clip:
+                        alt_clip += p_alt
+                    else:
+                        alt_seq += p_alt
 
                     if p_alt > 0:
                         split.tag_split(p_alt)
@@ -1596,22 +1603,24 @@ def sv_genotype(bam_string,
                 print 'alt_span:', alt_span
                 print 'ref_seq:', ref_seq
                 print 'alt_seq:', alt_seq
+                print 'alt_clip:', alt_clip
 
             # in the absence of evidence for a particular type, ignore the reference
             # support for that type as well
-            if alt_seq < 0.5 and alt_span >= 1:
+            if alt_seq + alt_clip < 0.5 and alt_span >= 1:
                 alt_seq = 0
                 ref_seq = 0
-            if alt_span < 0.5 and alt_seq >= 1:
+            if alt_span < 0.5 and alt_seq + alt_clip >= 1:
                 alt_span = 0
                 ref_span = 0
 
-            if ref_seq + alt_seq + ref_span + alt_span > 0:
+            if ref_seq + alt_seq + ref_span + alt_span + alt_clip > 0:
                 # get bayesian classifier
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
+                alt_splitters = alt_seq + alt_clip
                 QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
-                QA = int(split_weight * alt_seq) + int(disc_weight * alt_span)
+                QA = int(split_weight * alt_splitters) + int(disc_weight * alt_span)
                 gt_lplist = bayes_gt(QR, QA, is_dup)
                 gt_idx = gt_lplist.index(max(gt_lplist))
 
@@ -1621,14 +1630,15 @@ def sv_genotype(bam_string,
 
                 # set the overall variant QUAL score and sample specific fields
                 var.genotype(sample.name).set_format('GL', ','.join(['%.0f' % x for x in gt_lplist]))
-                var.genotype(sample.name).set_format('DP', int(ref_seq + alt_seq + ref_span + alt_span))
+                var.genotype(sample.name).set_format('DP', int(ref_seq + alt_seq + alt_clip + ref_span + alt_span))
                 var.genotype(sample.name).set_format('RO', int(ref_seq + ref_span))
-                var.genotype(sample.name).set_format('AO', int(alt_seq + alt_span))
+                var.genotype(sample.name).set_format('AO', int(alt_seq + alt_clip + alt_span))
                 var.genotype(sample.name).set_format('QR', QR)
                 var.genotype(sample.name).set_format('QA', QA)
                 # if detailed:
                 var.genotype(sample.name).set_format('RS', int(ref_seq))
                 var.genotype(sample.name).set_format('AS', int(alt_seq))
+                var.genotype(sample.name).set_format('AC', int(alt_clip))
                 var.genotype(sample.name).set_format('RP', int(ref_span))
                 var.genotype(sample.name).set_format('AP', int(alt_span))
                 try:
