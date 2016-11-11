@@ -1264,6 +1264,17 @@ def is_primary(read):
 def prob_mapq(read):
     return 1 - 10 ** (-read.mapq / 10.0)
 
+def prob_mapq_conditional(read, supports_bkpt):
+    '''
+    Calculate the probability the read supports the breakpoint given whether or not it maps to the breakpoint location
+    '''
+    # NOTE - Capping probability it's incorrect at equivalent to reciprocal of phred 60
+    prob_incorrect = min(10 ** (-read.mapq / 10.0), 0.999999)
+    if supports_bkpt:
+        return 1 - prob_incorrect
+    else:
+        return prob_incorrect
+
 # method to grab reads from region of interest in BAM file
 def gather_reads(sample,
                  chrom, pos, ci,
@@ -1505,10 +1516,10 @@ def sv_genotype(bam_string,
                                                        chromB, posB, ciB,
                                                        o1_is_reverse, o2_is_reverse,
                                                        split_slop)
-                    # p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
-                    p_alt = (prob_mapq(split.query_left) * split_lr[0] + prob_mapq(split.query_right) * split_lr[1]) / 2.0
+                    p_alt = prob_mapq_conditional(split.query_left, split_lr[0]) * prob_mapq_conditional(split.query_right, split_lr[1])
                     if split.is_soft_clip:
-                        alt_clip += p_alt
+                        # TODO Test whether or not we want to continue to halve mapq here or not
+                        alt_clip += p_alt / 2.0
                     else:
                         alt_seq += p_alt
 
