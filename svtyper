@@ -1607,10 +1607,11 @@ def sv_genotype(bam_string,
 
             # in the absence of evidence for a particular type, ignore the reference
             # support for that type as well
-            if alt_seq + alt_clip < 0.5 and alt_span >= 1:
+            if (alt_seq + alt_clip) < 0.5 and alt_span >= 1:
                 alt_seq = 0
+                alt_clip = 0
                 ref_seq = 0
-            if alt_span < 0.5 and alt_seq + alt_clip >= 1:
+            if alt_span < 0.5 and (alt_seq + alt_clip) >= 1:
                 alt_span = 0
                 ref_span = 0
 
