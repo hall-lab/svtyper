@@ -1389,7 +1389,7 @@ def sv_genotype(bam_string,
                 vcf.add_format('QA', 'A', 'Integer', 'Sum of quality of alternate observations')
                 vcf.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
                 vcf.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
-                vcf.add_format('AC', 'A', 'Integer', 'Alternate allele clipped-read observation count, with partial observations recorded fractionally')
+                vcf.add_format('ASC', 'A', 'Integer', 'Alternate allele clipped-read observation count, with partial observations recorded fractionally')
                 vcf.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
                 vcf.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
                 vcf.add_format('AB', 'A', 'Float', 'Allele balance, fraction of observations from alternate allele, QA/(QR+QA)')
@@ -1607,10 +1607,11 @@ def sv_genotype(bam_string,
 
             # in the absence of evidence for a particular type, ignore the reference
             # support for that type as well
-            if alt_seq + alt_clip < 0.5 and alt_span >= 1:
+            if (alt_seq + alt_clip) < 0.5 and alt_span >= 1:
                 alt_seq = 0
+                alt_clip = 0
                 ref_seq = 0
-            if alt_span < 0.5 and alt_seq + alt_clip >= 1:
+            if alt_span < 0.5 and (alt_seq + alt_clip) >= 1:
                 alt_span = 0
                 ref_span = 0
 
@@ -1638,7 +1639,7 @@ def sv_genotype(bam_string,
                 # if detailed:
                 var.genotype(sample.name).set_format('RS', int(ref_seq))
                 var.genotype(sample.name).set_format('AS', int(alt_seq))
-                var.genotype(sample.name).set_format('AC', int(alt_clip))
+                var.genotype(sample.name).set_format('ASC', int(alt_clip))
                 var.genotype(sample.name).set_format('RP', int(ref_span))
                 var.genotype(sample.name).set_format('AP', int(alt_span))
                 try:
@@ -1685,6 +1686,7 @@ def sv_genotype(bam_string,
                 var.genotype(sample.name).set_format('RO', 0)
                 # if detailed:
                 var.genotype(sample.name).set_format('AS', 0)
+                var.genotype(sample.name).set_format('ASC', 0)
                 var.genotype(sample.name).set_format('RS', 0)
                 var.genotype(sample.name).set_format('AP', 0)
                 var.genotype(sample.name).set_format('RP', 0)
