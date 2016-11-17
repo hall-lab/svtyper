@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
 
 # # make truth set and sort the BAMs
+# BAM=/gscmnt/gc2802/halllab/sv_aggregate/MISC/realigned_BAMs/NA12878/NA12878.bam
+# BAM_BASE=`basename $BAM .bam`
 # ../svtyper \
-#     -i truth.vcf \
-#     -B NA12893.bam \
-#     -S NA12893.splitters.bam \
-#     --dump NA12893.target_loci \
-#     > truth.gt.vcf
-# sambamba sort NA12893.target_loci.bam
-# sambamba sort NA12893.target_loci.splitters.bam
-
-# # find duplicates in BAM file
-# sambamba view NA12893.target_loci.sorted.bam | sort -k1,1 | zapdups -v
-# sambamba view NA12893.target_loci.splitters.sorted.bam | sort -k1,1 | zapdups -v
+#     -i example.vcf \
+#     -B $BAM \
+#     -l $BAM_BASE.bam.json \
+#     -w $BAM_BASE.target_loci.bam \
+#     > example.gt.vcf
+#
+# sambamba sort NA12878.target_loci.bam
 
 # run test
 ../svtyper \
-    -i truth.vcf \
-    -B NA12893.target_loci.sorted.bam \
-    -S NA12893.target_loci.splitters.sorted.bam \
-    -l NA12893.target_loci.lib_info.json \
-    > test.gt.vcf
+    -i example.vcf \
+    -B NA12878.target_loci.sorted.bam \
+    -l NA12878.bam.json \
+    > out.vcf
 
-diff -I '^#' truth.gt.vcf test.gt.vcf
+diff -I '^##fileDate=' example.gt.vcf out.vcf
