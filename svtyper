@@ -1059,6 +1059,21 @@ class SplitRead(object):
 
         return non_overlap
 
+    @staticmethod
+    def check_split_support(split, chrom, pos, is_reverse, split_slop):
+        if split.chrom != chrom:
+            return False
+
+        if is_reverse:
+            coord = split.reference_start
+        else:
+            coord = split.reference_end
+
+        if (coord > pos + split_slop
+                or coord < pos - split_slop):
+            return False
+        return True
+
     def is_split_straddle(self,
                           chromA, posA, ciA,
                           chromB, posB, ciB,
@@ -1087,44 +1102,17 @@ class SplitRead(object):
             is_reverse_right = o2_is_reverse
 
 
-        left_split = True
-        right_split = True
-
         # check split chromosomes against variant
-        if self.query_left.chrom != chrom_left:
-            left_split = False
-        if self.query_right.chrom != chrom_right:
-            right_split = False
-
-        ''' Check left side of variant '''
-        # left side of variant is negative strand
-        if is_reverse_left:
-            if self.query_left.reference_start > pos_left + split_slop:
-                left_split = False
-            if self.query_left.reference_start < pos_left - split_slop:
-                left_split = False
-
-        # left side of variant is positive strand
-        else:
-            if self.query_left.reference_end > pos_left + split_slop:
-                left_split = False
-            if self.query_left.reference_end < pos_left - split_slop:
-                left_split = False
-
-        ''' Check right side of variant '''
-        # right side of variant is negative strand
-        if is_reverse_right:
-            if self.query_right.reference_start > pos_right + split_slop:
-                right_split = False
-            if self.query_right.reference_start < pos_right - split_slop:
-                right_split = False
-
-        # right side of variant is positive strand
-        else:
-            if self.query_right.reference_end < pos_right - split_slop:
-                right_split = False
-            if self.query_right.reference_end > pos_right + split_slop:
-                right_split = False
+        left_split = self.check_split_support(self.query_left, 
+                chrom_left, 
+                pos_left,
+                is_reverse_left,
+                split_slop)
+        right_split = self.check_split_support(self.query_right,
+                chrom_right,
+                pos_right,
+                is_reverse_right,
+                split_slop)
 
         return (left_split, right_split)
 
