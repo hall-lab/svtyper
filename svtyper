@@ -1103,18 +1103,28 @@ class SplitRead(object):
 
 
         # check split chromosomes against variant
-        left_split = self.check_split_support(self.query_left, 
+        left_split_left = self.check_split_support(self.query_left, 
                 chrom_left, 
                 pos_left,
                 is_reverse_left,
                 split_slop)
-        right_split = self.check_split_support(self.query_right,
+        left_split_right = self.check_split_support(self.query_left, 
+                chrom_right, 
+                pos_right,
+                is_reverse_right,
+                split_slop)
+        right_split_left = self.check_split_support(self.query_right, 
+                chrom_left, 
+                pos_left,
+                is_reverse_left,
+                split_slop)
+        right_split_right = self.check_split_support(self.query_right,
                 chrom_right,
                 pos_right,
                 is_reverse_right,
                 split_slop)
 
-        return (left_split, right_split)
+        return (left_split_left or left_split_right, right_split_left or right_split_right)
 
     # tag the read with R (ref), A (alt), or U (unknown) XV tag
     def tag_split(self, p_alt=None):
