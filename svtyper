@@ -970,7 +970,8 @@ class SplitRead(object):
                                         self.read.cigar,
                                         0)
                     b.set_reference_end(1)
-                    self.set_order_by_clip(a, b)
+                    # NOTE we test both sides later. Order doesn't matter for these.
+                    self.query_left, self.query_right = a, b
                     self.is_soft_clip = True
                     return True
                 else:
@@ -1010,10 +1011,9 @@ class SplitRead(object):
         # (query_left and query_right are random when on different chromosomes
         if (self.read.reference_name == mate_chrom
             and self.read.pos > mate_pos):
-            self.query_left = b
-            self.query_right = a
+            self.query_left, self.query_right = b, a
         else:
-            self.set_order_by_clip(a, b)
+            self.query_left, self.query_right = a, b
 
         # check non-overlap
         if self.non_overlap() < min_non_overlap:
@@ -1138,19 +1138,6 @@ class SplitRead(object):
         self.read.set_tag('XV', value)
 
         return
-
-    def set_order_by_clip(self, a, b): 
-        '''
-        Determine which SplitPiece is the leftmost based
-        on the side of the longest clipping operation
-        '''
-        if is_left_clip(a.cigar):
-            self.query_left = b
-            self.query_right = a
-        else:
-            self.query_left = a
-            self.query_right = b
-
 
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
