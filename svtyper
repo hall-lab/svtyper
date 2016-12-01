@@ -358,7 +358,7 @@ def bayes_gt(ref, alt, is_dup):
 
     total = ref + alt
     log_combo = log_choose(total, alt)
-    
+
     lp_homref = log_combo + alt * math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
     lp_het = log_combo + alt * math.log(p_alt[1], 10) + ref * math.log(1 - p_alt[1], 10)
     lp_homalt = log_combo + alt * math.log(p_alt[2], 10) + ref * math.log(1 - p_alt[2], 10)
@@ -736,7 +736,7 @@ class Sample(object):
         genome_size = float(sum(self.bam.lengths))
         weighted_mean_span = sum([(lib.mean - 2 * lib.read_length + 2 * min_aligned) * lib.prevalence for lib in self.lib_dict.values()])
         exp_spanning_depth = (weighted_mean_span * self.bam_mapped) / genome_size
-        
+
         self.exp_spanning_depth = exp_spanning_depth
 
         return
@@ -779,7 +779,7 @@ class SamFragment(object):
             return
         else:
             self.read_set.add(read_hash)
-        
+
         if is_primary(read):
             # add the primary reads
             self.primary_reads.append(read)
@@ -880,7 +880,7 @@ class SamFragment(object):
             return False
 
         return True
-    
+
     # calculate the probability that a read pair is concordant at a breakpoint,
     # given the putative variant size and insert distribution of the library.
     def p_concordant(self, var_length=None):
@@ -1078,7 +1078,7 @@ class SplitRead(object):
                           chromA, posA, ciA,
                           chromB, posB, ciB,
                           o1_is_reverse, o2_is_reverse,
-                          split_slop):
+                          svtype, split_slop):
 
         # arrange the SV breakends from left to right
         if (chromA != chromB
@@ -1103,28 +1103,57 @@ class SplitRead(object):
 
 
         # check split chromosomes against variant
-        left_split_left = self.check_split_support(self.query_left, 
-                chrom_left, 
-                pos_left,
-                is_reverse_left,
-                split_slop)
-        left_split_right = self.check_split_support(self.query_left, 
-                chrom_right, 
-                pos_right,
-                is_reverse_right,
-                split_slop)
-        right_split_left = self.check_split_support(self.query_right, 
-                chrom_left, 
-                pos_left,
-                is_reverse_left,
-                split_slop)
-        right_split_right = self.check_split_support(self.query_right,
-                chrom_right,
-                pos_right,
-                is_reverse_right,
-                split_slop)
+        left_split = False
+        right_split = False
 
-        return (left_split_left or left_split_right, right_split_left or right_split_right)
+        if not self.is_soft_clip or svtype == 'DEL' or svtype == 'INS':
+            left_split = self.check_split_support(self.query_left,
+                    chrom_left,
+                    pos_left,
+                    is_reverse_left,
+                    split_slop)
+            right_split = self.check_split_support(self.query_right,
+                    chrom_right,
+                    pos_right,
+                    is_reverse_right,
+                    split_slop)
+        elif svtype == 'DUP':
+            left_split = self.check_split_support(self.query_left,
+                    chrom_right,
+                    pos_right,
+                    is_reverse_right,
+                    split_slop)
+            right_split = self.check_split_support(self.query_right,
+                    chrom_left,
+                    pos_left,
+                    is_reverse_left,
+                    split_slop)
+        elif svtype == 'INV':
+                # check all possible sides
+            left_split_left = self.check_split_support(self.query_left,
+                    chrom_left,
+                    pos_left,
+                    is_reverse_left,
+                    split_slop)
+            left_split_right = self.check_split_support(self.query_left,
+                    chrom_right,
+                    pos_right,
+                    is_reverse_right,
+                    split_slop)
+            left_split = left_split_left or left_split_right
+            right_split_left = self.check_split_support(self.query_right,
+                    chrom_left,
+                    pos_left,
+                    is_reverse_left,
+                    split_slop)
+            right_split_right = self.check_split_support(self.query_right,
+                    chrom_right,
+                    pos_right,
+                    is_reverse_right,
+                    split_slop)
+            right_split = right_split_left or right_split_right
+
+        return (left_split, right_split)
 
     # tag the read with R (ref), A (alt), or U (unknown) XV tag
     def tag_split(self, p_alt=None):
@@ -1134,12 +1163,12 @@ class SplitRead(object):
             value = 'A'
         else:
             value = 'R'
-        
+
         self.read.set_tag('XV', value)
 
         return
 
-    def set_order_by_clip(self, a, b): 
+    def set_order_by_clip(self, a, b):
         '''
         Determine which SplitPiece is the leftmost based
         on the side of the longest clipping operation
@@ -1329,7 +1358,7 @@ def sv_genotype(bam_string,
         else:
             sys.stderr.write('Reading library metrics from %s...' % lib_info_path)
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
-        
+
         sample.set_exp_seq_depth(min_aligned)
         sample.set_exp_spanning_depth(min_aligned)
         sample_list.append(sample)
@@ -1414,7 +1443,7 @@ def sv_genotype(bam_string,
             sys.stderr.write('Warning: Unsupported SV type at variant %s (%s). Skipping.\n' % (var.var_id, svtype))
             vcf_out.write(var.get_var_string() + '\n')
             continue
-        
+
         if svtype == 'BND':
             if var.info['MATEID'] in breakend_dict:
                 var2 = var
@@ -1434,7 +1463,7 @@ def sv_genotype(bam_string,
                 if var2.alt[-1] == '[' or var2.alt[-1] == ']':
                     o2_is_reverse = False
                 else: o2_is_reverse = True
-                
+
                 # remove the BND from the breakend_dict
                 # to free up memory
                 del breakend_dict[var.var_id]
@@ -1502,7 +1531,7 @@ def sv_genotype(bam_string,
                     split_lr = split.is_split_straddle(chromA, posA, ciA,
                                                        chromB, posB, ciB,
                                                        o1_is_reverse, o2_is_reverse,
-                                                       split_slop)
+                                                       svtype, split_slop)
                     # p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
                     p_alt = (prob_mapq(split.query_left) * split_lr[0] + prob_mapq(split.query_right) * split_lr[1]) / 2.0
                     if split.is_soft_clip:
@@ -1517,7 +1546,7 @@ def sv_genotype(bam_string,
                 # -------------------------------------
                 # Check for paired-end evidence
                 # -------------------------------------
-                
+
                 # tally spanning alternate pairs
                 if svtype == 'DEL' and posB - posA < 2 * fragment.lib.sd:
                     alt_straddle = False
@@ -1586,7 +1615,7 @@ def sv_genotype(bam_string,
                         if p_conc is not None:
                             p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             ref_span += (ref_straddle_A + ref_straddle_B) * p_reference / 2
-                            
+
                             fragment.tag_span(1 - p_conc)
                             write_fragment = True
 
