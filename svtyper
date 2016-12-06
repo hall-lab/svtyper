@@ -1008,10 +1008,13 @@ class SplitRead(object):
         # set query_left and query_right splitter by alignment position on the reference
         # this is used for non-overlap and off-diagonal filtering
         # (query_left and query_right are random when on different chromosomes
-        if (self.read.reference_name == mate_chrom
-            and self.read.pos > mate_pos):
-            self.query_left = b
-            self.query_right = a
+        if self.read.reference_name == mate_chrom:
+            if self.read.pos > mate_pos:
+                self.query_left = b
+                self.query_right = a
+            else:
+                self.query_left = a
+                self.query_right = b
         else:
             self.set_order_by_clip(a, b)
 
@@ -1106,7 +1109,7 @@ class SplitRead(object):
         left_split = False
         right_split = False
 
-        if not self.is_soft_clip or svtype == 'DEL' or svtype == 'INS':
+        if (not self.is_soft_clip) or svtype == 'DEL' or svtype == 'INS':
             left_split = self.check_split_support(self.query_left,
                     chrom_left,
                     pos_left,
