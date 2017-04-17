@@ -27,7 +27,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-l', '--lib_info', metavar='FILE', dest='lib_info_path', type=str, required=False, default=None, help='create/read JSON file of library information')
     parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
-    parser.add_argument('-q', '--clear_qual', action='store_true', required=False, help='clear existing QUAL scores prior to genotyping')
+    parser.add_argument('-q', '--sum_quals', action='store_true', required=False, help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
@@ -1341,7 +1341,7 @@ def sv_genotype(bam_string,
                 debug,
                 alignment_outpath,
                 ref_fasta,
-                clear_qual):
+                sum_quals):
 
     # parse the comma separated inputs
     bam_list = []
@@ -1451,7 +1451,7 @@ def sv_genotype(bam_string,
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
         var_length = None # var_length should be None except for deletions
-        if clear_qual:
+        if not sum_quals:
             var.qual = 0
 
         # genotype generic breakends
@@ -1783,7 +1783,7 @@ def main():
                 args.debug,
                 args.alignment_outpath,
                 args.ref_fasta,
-                args.clear_qual)
+                args.sum_quals)
 
 # initialize the script
 if __name__ == '__main__':
