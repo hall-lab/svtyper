@@ -28,6 +28,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('-q', '--sum_quals', action='store_true', required=False, help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
+    parser.add_argument('--max_reads', metavar='INT', type=int, default=1000, required=False, help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions) [1000]')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
@@ -1346,7 +1347,8 @@ def sv_genotype(bam_string,
                 debug,
                 alignment_outpath,
                 ref_fasta,
-                sum_quals):
+                sum_quals,
+                max_reads):
 
     # parse the comma separated inputs
     bam_list = []
@@ -1522,12 +1524,12 @@ def sv_genotype(bam_string,
         for sample in sample_list:
             # grab batch of reads from both sides of breakpoint
             read_batch = {}
-            read_batch, many = gather_reads(sample, chromA, posA, ciA, z, read_batch)
+            read_batch, many = gather_reads(sample, chromA, posA, ciA, z, read_batch, max_reads)
             if many:
                 var.genotype(sample.name).set_format('GT', './.')
                 continue
 
-            read_batch, many = gather_reads(sample, chromB, posB, ciB, z, read_batch)
+            read_batch, many = gather_reads(sample, chromB, posB, ciB, z, read_batch, max_reads)
             if many:
                 var.genotype(sample.name).set_format('GT', './.')
                 continue
@@ -1795,7 +1797,8 @@ def main():
                 args.debug,
                 args.alignment_outpath,
                 args.ref_fasta,
-                args.sum_quals)
+                args.sum_quals,
+                args.max_reads)
 
 # initialize the script
 if __name__ == '__main__':
