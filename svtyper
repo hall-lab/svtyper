@@ -1321,7 +1321,7 @@ def gather_reads(sample,
 
         # read.query_sequence = "*"
         # read.query_qualities = "*"
-        if max_reads is not None and  i > max_reads:
+        if max_reads is not None and i > max_reads:
             many = True
             break
 
