@@ -28,7 +28,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('-q', '--sum_quals', action='store_true', required=False, help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
-    parser.add_argument('--max_reads', metavar='INT', type=int, default=1000, required=False, help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions) [1000]')
+    parser.add_argument('--max_reads', metavar='INT', type=int, default=None, required=False, help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions, default: unlimited)')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
@@ -1302,7 +1302,7 @@ def gather_reads(sample,
                  chrom, pos, ci,
                  z,
                  fragment_dict,
-                 max_reads=1000):
+                 max_reads):
 
     # the distance to the left and right of the breakpoint to scan
     # (max of mean + z standard devs over all of a sample's libraries)
@@ -1321,7 +1321,7 @@ def gather_reads(sample,
 
         # read.query_sequence = "*"
         # read.query_qualities = "*"
-        if i > max_reads:
+        if max_reads is not None and  i > max_reads:
             many = True
             break
 
