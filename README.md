@@ -29,7 +29,7 @@ Requirements
 
 Clone the repository
 ```
-git clone git@github.com:hall-lab/svtyper.git
+git clone https://github.com/hall-lab/svtyper.git
 ```
 
 Test the installation
