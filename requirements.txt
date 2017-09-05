@@ -1,1 +1,3 @@
 pysam
+scipy
+numpy

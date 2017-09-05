@@ -22,6 +22,8 @@ setup(
     tests_require=['pytest'],
     install_requires=[
         'pysam>=0.8.1',
+        'numpy',
+        'scipy',
     ],
     entry_points='''
         [console_scripts]
