@@ -25,6 +25,15 @@ setup(
         'numpy',
         'scipy',
     ],
+    scripts=[
+        'scripts/sv_classifier.py',
+        'scripts/update_info.py',
+        'scripts/vcf_allele_freq.py',
+        'scripts/vcf_group_multiline.py',
+        'scripts/vcf_modify_header.py',
+        'scripts/vcf_paste.py',
+        'scripts/lib_stats.R',
+    ],
     entry_points='''
         [console_scripts]
         svtyper=svtyper:main
