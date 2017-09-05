@@ -40,5 +40,11 @@ setup(
     ''',
     packages=find_packages(exclude=('tests', 'etc')),
     include_package_data=True,
+    classifiers=[
+        'Intended Audience :: Science/Research',
+        'Topic :: Scientific/Engineering :: Bio-Informatics',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 2.7',
+    ],
 )
 
