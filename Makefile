@@ -7,4 +7,5 @@ test:
 clean:
 	find tests -name "*.pyc" -exec rm -v {} \;
 	find scripts -name "*.pyc" -exec rm -v {} \;
+	find svtyper -name "*.pyc" -exec rm -v {} \;
 	if [ -e svtyper.pyc ]; then rm -v svtyper.pyc; fi;

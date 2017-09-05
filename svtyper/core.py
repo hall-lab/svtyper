@@ -1802,6 +1802,16 @@ def main():
                 args.sum_quals,
                 args.max_reads)
 
+# --------------------------------------
+# command-line/console entrypoint
+
+def cli():
+    try:
+        sys.exit(main())
+    except IOError, e:
+        if e.errno != 32:  # ignore SIGPIPE
+            raise
+
 # initialize the script
 if __name__ == '__main__':
     try:
