@@ -15,7 +15,7 @@ set -e
 # sambamba sort NA12878.target_loci.bam
 
 # run test
-../svtyper \
+../svtyper.py \
     -i example.vcf \
     -B NA12878.target_loci.sorted.bam \
     -l NA12878.bam.json \
