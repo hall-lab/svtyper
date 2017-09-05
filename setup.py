@@ -18,6 +18,8 @@ setup(
     author_email='colbychiang@wustl.edu',
     license=license,
     url='https://github.com/hall-lab/svtyper',
+    setup_requires=['pytest-runner'],
+    tests_require=['pytest'],
     install_requires=[
         'pysam>=0.8.1',
     ],
