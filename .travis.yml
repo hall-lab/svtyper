@@ -2,6 +2,11 @@ language: python
 python:
     - "2.7"
 
+addons:
+  apt:
+    packages:
+    - make
+
 install:
   - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
       wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh;
@@ -19,10 +24,11 @@ install:
   - deps='pysam'
   - conda create -q -c bioconda -n test-environment python=$TRAVIS_PYTHON_VERSION $deps
   - source activate test-environment
+  - make install
 
 script:
     - cd test && ./test.sh
-    - python test_svtyper.py
+    - make test
 
 # # command to install dependencies
 # install:
