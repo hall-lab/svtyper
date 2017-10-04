@@ -8,14 +8,16 @@ from collections import Counter
 from argparse import RawTextHelpFormatter
 from functools import wraps
 
+import svtyper.version
+
 # --------------------------------------
 # define functions
 
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
 svtyper\n\
-author: " + __author__ + "\n\
-version: " + __version__ + "\n\
+author: " + svtyper.version.__author__ + "\n\
+version: " + svtyper.version.__version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-i', '--input_vcf', metavar='FILE', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', metavar='FILE',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
