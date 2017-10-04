@@ -8,9 +8,6 @@ from collections import Counter
 from argparse import RawTextHelpFormatter
 from functools import wraps
 
-__author__ = "Colby Chiang (colbychiang@wustl.edu)"
-__version__ = "v0.1.5"
-
 # --------------------------------------
 # define functions
 

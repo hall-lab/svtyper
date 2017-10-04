@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from setuptools import setup, find_packages
-import svtyper.core as svt
 
 with open('README.md') as f:
     readme = f.read()
@@ -9,12 +8,15 @@ with open('README.md') as f:
 with open('LICENSE') as f:
     license = f.read()
 
+with open('svtyper/version.py') as f:
+    exec(f.read())
+
 setup(
     name='svtyper',
-    version=svt.__version__,
+    version=__version__,
     description='Bayesian genotyper for structural variants',
     long_description=readme,
-    author=svt.__author__,
+    author=__author__,
     author_email='colbychiang@wustl.edu',
     license=license,
     url='https://github.com/hall-lab/svtyper',
