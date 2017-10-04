@@ -6,9 +6,10 @@ import argparse, sys, os.path
 import math, time, re
 from collections import Counter
 from argparse import RawTextHelpFormatter
+from functools import wraps
 
 __author__ = "Colby Chiang (colbychiang@wustl.edu)"
-__version__ = "v0.1.4"
+__version__ = "v0.1.5"
 
 # --------------------------------------
 # define functions
@@ -44,6 +45,26 @@ description: Compute genotype of structural variants based on breakpoint depth")
 
     # send back the user input
     return args
+
+# ==================================================
+# Memoization Helpers
+# ==================================================
+def memoize_bam_search(func):
+    cache = {}
+
+    @wraps(func)
+    def wrap(*args):
+        # skip the fragment_dict input to gather_reads
+        (sample, chrom, lpos, rpos) = args
+        inputs = (sample.name, chrom, lpos, rpos)
+        if inputs not in cache:
+            sys.stderr.write('inovking bam search fn -- {}\n'.format(inputs))
+            cache[inputs] = func(*args)
+        else:
+            sys.stderr.write('using cached results -- {}\n'.format(inputs))
+        return cache[inputs]
+
+    return wrap
 
 # ==================================================
 # VCF parsing tools
@@ -1297,7 +1318,20 @@ def is_primary(read):
 def prob_mapq(read):
     return 1 - 10 ** (-read.mapq / 10.0)
 
-# method to grab reads from region of interest in BAM file
+# methods to grab reads from region of interest in BAM file
+def gather_all_reads(sample, chromA, posA, ciA, chromB, posB, ciB, z, max_reads):
+    # grab batch of reads from both sides of breakpoint
+    read_batch = {}
+    read_batch, many = gather_reads(sample, chromA, posA, ciA, z, read_batch, max_reads)
+    if many:
+        return {}, True
+
+    read_batch, many = gather_reads(sample, chromB, posB, ciB, z, read_batch, max_reads)
+    if many:
+        return {}, True
+
+    return read_batch, many
+
 def gather_reads(sample,
                  chrom, pos, ci,
                  z,
@@ -1310,9 +1344,15 @@ def gather_reads(sample,
     chrom_length = sample.bam.lengths[sample.bam.gettid(chrom)]
 
     many = False
-    for i, read in enumerate(sample.bam.fetch(chrom,
-                                 max(pos + ci[0] - fetch_flank, 0),
-                                 min(pos + ci[1] + fetch_flank, chrom_length))):
+
+    reads = fetch_reads_from_bam(
+        sample,
+        chrom,
+        max(pos + ci[0] - fetch_flank, 0),
+        min(pos + ci[1] + fetch_flank, chrom_length)
+    )
+
+    for i, read in enumerate(reads):
         if read.is_unmapped or read.is_duplicate:
             continue
 
@@ -1332,6 +1372,10 @@ def gather_reads(sample,
             fragment_dict[read.query_name] = SamFragment(read, lib)
 
     return fragment_dict, many
+
+@memoize_bam_search
+def fetch_reads_from_bam(sample, chrom, left_pos, right_pos):
+    return list(sample.bam.fetch(chrom, left_pos, right_pos))
 
 # ==================================================
 # Genotyping function
@@ -1523,14 +1567,8 @@ def sv_genotype(bam_string,
         if o2_is_reverse: posB += 1
 
         for sample in sample_list:
-            # grab batch of reads from both sides of breakpoint
-            read_batch = {}
-            read_batch, many = gather_reads(sample, chromA, posA, ciA, z, read_batch, max_reads)
-            if many:
-                var.genotype(sample.name).set_format('GT', './.')
-                continue
-
-            read_batch, many = gather_reads(sample, chromB, posB, ciB, z, read_batch, max_reads)
+            # grab reads from both sides of breakpoint
+            read_batch, many = gather_all_reads(sample, chromA, posA, ciA, chromB, ciB, z, max_reads)
             if many:
                 var.genotype(sample.name).set_format('GT', './.')
                 continue
@@ -1815,3 +1853,25 @@ def cli():
 # initialize the script
 if __name__ == '__main__':
     cli()
+
+
+# NOTES:
+#http://code.activestate.com/recipes/578231-probably-the-fastest-memoization-decorator-in-the-/
+#http://kitchingroup.cheme.cmu.edu/blog/2013/06/20/Memoizing-expensive-functions-in-python-and-saving-results/
+#https://stackoverflow.com/questions/4566769/can-i-memoize-a-python-generator
+#https://docs.python.org/2/library/itertools.html
+#https://stackoverflow.com/questions/5234090/how-to-take-the-first-n-items-from-a-generator-or-list-in-python
+#https://stackoverflow.com/questions/5105517/deep-copy-of-a-dict-in-python
+#https://stackoverflow.com/questions/41029158/creating-a-tuple-out-of-args
+# http://pysam.readthedocs.io/en/latest/api.html
+#     import pysam
+#     import itertools
+#     s = pysam.AlignmentFile("./tests/data/NA12878.target_loci.sorted.bam", 'rb')
+#     foo = list(itertools.islice(s.fetch('2', 2798415, 2798700), 15))
+#     len(foo)
+#     foo500 = list(itertools.islice(s.fetch('2', 2798415, 2798700), 500))
+#     foo15 = list(itertools.islice(s.fetch('2', 2798415, 2798700), 15))
+#     foo500[0].__hash__()
+#     foo15[0].__hash__()
+#     foo15[0].is_unmapped
+#     foo15[0].is_duplicate
