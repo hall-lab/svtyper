@@ -1568,7 +1568,7 @@ def sv_genotype(bam_string,
 
         for sample in sample_list:
             # grab reads from both sides of breakpoint
-            read_batch, many = gather_all_reads(sample, chromA, posA, ciA, chromB, ciB, z, max_reads)
+            read_batch, many = gather_all_reads(sample, chromA, posA, ciA, chromB, posB, ciB, z, max_reads)
             if many:
                 var.genotype(sample.name).set_format('GT', './.')
                 continue
