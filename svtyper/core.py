@@ -57,8 +57,9 @@ def memoize_bam_search(func):
         (sample, chrom, lpos, rpos) = args
         inputs = (sample.name, chrom, lpos, rpos)
         if inputs not in cache:
-            sys.stderr.write('inovking bam search fn -- {}\n'.format(inputs))
+            sys.stderr.write('inovking bam search fn -- {} -- '.format(inputs))
             cache[inputs] = func(*args)
+            sys.stderr.write('length: {} \n'.format(len(cache[inputs])))
         else:
             sys.stderr.write('using cached results -- {}\n'.format(inputs))
         return cache[inputs]
