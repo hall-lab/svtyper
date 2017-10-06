@@ -10,7 +10,7 @@ import svtyper.version
 
 from svtyper.parsers import Vcf, Variant, Sample
 from svtyper.utils import *
-from svtyper.statistics import *
+from svtyper.statistics import bayes_gt
 
 # --------------------------------------
 # define functions

@@ -1,6 +1,8 @@
 import time, re
 from collections import Counter
 
+from svtyper.statistics import mean, stdev, median, upper_mad
+
 # ==================================================
 # VCF parsing tools
 # ==================================================
