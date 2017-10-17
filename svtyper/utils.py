@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-import sys, time, datetime, os, contextlib, tempfile, shutil
+import sys, time, datetime, os, contextlib, tempfile, shutil, json
 from functools import wraps
 
 from svtyper.parsers import SamFragment, Vcf
