@@ -740,7 +740,7 @@ class LiteRead(object):
         return instance
 
     def _calculate_is_ref_seq(self, pysam_read, min_aligned, breakpoint):
-        for side ('A', 'B'):
+        for side in ('A', 'B'):
             chrom = breakpoint[side]['chrom']
             pos = breakpoint[side]['pos']
 

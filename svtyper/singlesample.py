@@ -9,7 +9,7 @@ import pysam
 
 
 def get_args():
-    parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter, description="\
 svtyper\n\
 author: " + 'Indraniel Das (idas@wustl.edu)' + "\n\
 version: " + svtyper.version.__version__ + "\n\
@@ -69,7 +69,7 @@ def setup_sample(bam, reference_fasta, sampling_number, min_aligned):
 
 def dump_library_metrics(lib_info_path, sample):
     sample_list = [sample]
-    if lib_info_path is not None
+    if lib_info_path is not None:
         logit('Writing library metrics to %s...' % lib_info_path)
         lib_info_file = open(lib_info_path, 'w')
         write_sample_json(sample_list, lib_info_file)
@@ -125,7 +125,7 @@ def get_breakpoint_regions(breakpoint, sample, z):
     fetch_flank = sample.get_fetch_flank(z)
 
     regions = []
-    for side ('A', 'B'):
+    for side in ('A', 'B'):
         pos = breakpoint[side]['pos']
         ci = breakpoint[side]['ci']
         chrom = breakpoint[side]['chrom']
