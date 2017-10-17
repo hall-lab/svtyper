@@ -39,6 +39,7 @@ setup(
     entry_points='''
         [console_scripts]
         svtyper=svtyper.core:cli
+        svtyper-sso=svtyper.singlesample:cli
     ''',
     packages=find_packages(exclude=('tests', 'etc')),
     include_package_data=True,

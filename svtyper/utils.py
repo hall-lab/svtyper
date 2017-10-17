@@ -1,7 +1,9 @@
-import sys
+from __future__ import print_function
+
+import sys, time, datetime, os, contextlib, tempfile, shutil
 from functools import wraps
 
-from svtyper.parsers import SamFragment
+from svtyper.parsers import SamFragment, Vcf
 
 # ==================================================
 # BAM and JSON output
@@ -82,3 +84,80 @@ def memoize_bam_search(func):
 @memoize_bam_search
 def fetch_reads_from_bam(sample, chrom, left_pos, right_pos):
     return list(sample.bam.fetch(chrom, left_pos, right_pos))
+
+
+# ==================================================
+# logging
+# ==================================================
+
+def logit(msg):
+    ts = time.strftime("[ %Y-%m-%d %T ]", datetime.datetime.now().timetuple())
+    fullmsg = "{} {}".format(ts, msg)
+    print(fullmsg, file=sys.stderr)
+    sys.stderr.flush()
+
+# ==================================================
+# temporary directory handling
+# ==================================================
+
+def is_lsf_job():
+    rv = True if 'LSB_JOBID' in os.environ else False
+    return rv
+
+@contextlib.contextmanager
+def cd(newdir, cleanup=lambda: True):
+    prevdir = os.getcwd()
+    os.chdir(os.path.expanduser(newdir))
+    try:
+        yield
+    finally:
+        os.chdir(prevdir)
+        cleanup()
+
+@contextlib.contextmanager
+def tempdir():
+    root = '/tmp'
+    if is_lsf_job():
+        root = '/tmp/{}.tmpdir'.format(os.environ['LSB_JOBID'])
+
+    dir_prefix = 'svtyper-{}-'.format(os.getpid())
+    dirpath = tempfile.mkdtemp(dir=root, prefix=dir_prefix)
+
+    def cleanup():
+        shutil.rmtree(dirpath)
+
+    with cd(dirpath, cleanup):
+        yield dirpath
+
+
+# ==================================================
+# vcf helpers
+# ==================================================
+def vcf_variants(vcf_file):
+    with open(vcf_file, 'r') as f:
+        for line in f:
+            if not line.startswith('#'):
+                yield line
+
+def vcf_headers(vcf_file):
+    with open(vcf_file, 'r') as f:
+        for line in f:
+            if line.startswith('##'):
+                yield line
+            else:
+                break
+
+def vcf_samples(vcf_file):
+    samples = []
+    with open(vcf_file, 'r') as f:
+        for line in f:
+            if line.startswith('#CHROM'):
+                samples = line.rstrip().split('\t')[9:]
+                break
+    return samples
+
+# ==================================================
+# system helpers
+# ==================================================
+def die(msg):
+    sys.exit(msg)

@@ -1,7 +1,27 @@
-import time, re
+from __future__ import print_function
+
+import time, re, json, sys
 from collections import Counter
 
 from svtyper.statistics import mean, stdev, median, upper_mad
+
+# ==================================================
+# JSON encoding tools
+# ==================================================
+# https://code.tutsplus.com/tutorials/serialization-and-deserialization-of-python-objects-part-1--cms-26183
+# https://stackoverflow.com/questions/26033239/list-of-objects-to-json-with-python
+def lite_read_json_encoder(obj):
+    if isinstance(obj, LiteRead):
+        return { '__{}__'.format(obj.__class__.__name__): obj.__dict__ }
+
+def lite_read_json_decoder(dct):
+    if '__LiteRead__' in dct:
+        # https://stackoverflow.com/questions/19476816/creating-an-empty-object-in-python
+        obj = type('LiteRead', (), {})()
+        obj.__dict__.update(dct['__LiteRead__'])
+        return obj
+    else:
+        return dct
 
 # ==================================================
 # VCF parsing tools
@@ -18,6 +38,8 @@ class Vcf(object):
         self.alt_list = []
         self.add_format('GT', 1, 'String', 'Genotype')
         self.header_misc = []
+        self.filename = None
+        self._bnd_breakpoint_func = None
 
     def add_custom_svtyper_headers(self):
         self.add_info('SVTYPE', 1, 'String', 'Type of structural variant')
@@ -106,6 +128,100 @@ class Vcf(object):
     # NOTE: this is zero-based, like python arrays
     def sample_to_col(self, sample):
         return self.sample_list.index(sample) + 9
+
+    def _init_bnd_breakpoint_func(self):
+        bnd_cache = {}
+
+        def _get_bnd_breakpoints(variant):
+            if variant.info['MATEID'] in bnd_cache:
+                var2 = variant
+                var = bnd_cache[variant.info['MATEID']]
+                chromA = var.chrom
+                chromB = var2.chrom
+                posA = var.pos
+                posB = var2.pos
+                # confidence intervals
+                ciA = map(int, var.info['CIPOS'].split(','))
+                ciB = map(int, var2.info['CIPOS'].split(','))
+
+                # infer the strands from the alt allele
+                if var.alt[-1] == '[' or var.alt[-1] == ']':
+                    o1_is_reverse = False
+                else: o1_is_reverse = True
+                if var2.alt[-1] == '[' or var2.alt[-1] == ']':
+                    o2_is_reverse = False
+                else: o2_is_reverse = True
+
+                breakpoints = {
+                    'svtype' : svtype,
+                    'A' : {'chrom': chromA, 'pos' : posA, 'ci': ciA, 'is_reverse': o1_is_reverse},
+                    'B' : {'chrom': chromB, 'pos' : posB, 'ci': ciB, 'is_reverse': o2_is_reverse},
+                }
+
+                for k in ('A', 'B'):
+                    if breakpoints[k]['is_reverse']:
+                        breakpoints[k]['pos'] += 1
+
+                # remove the BND from the bnd_cache
+                # to free up memory
+                del bnd_cache[var.var_id]
+
+                return breakpoints
+            else:
+                bnd_cache[variant.var_id] = variant
+                return None
+         
+        return _get_bnd_breakpoints
+
+    def _default_get_breakpoints(self, variant):
+        chromA = variant.chrom
+        chromB = variant.chrom
+        posA = variant.pos
+        posB = int(variant.get_info('END'))
+        # confidence intervals
+        ciA = map(int, variant.info['CIPOS'].split(','))
+        ciB = map(int, variant.info['CIEND'].split(','))
+        if svtype == 'DEL':
+            var_length = posB - posA
+            o1_is_reverse, o2_is_reverse =  False, True
+        elif svtype == 'DUP':
+            o1_is_reverse, o2_is_reverse =  True, False
+        elif svtype == 'INV':
+            o1_is_reverse, o2_is_reverse = False, False
+
+        if svtype != 'DEL':
+            breakpoints = {
+                'svtype' : svtype,
+                'A' : {'chrom': chromA, 'pos' : posA, 'ci': ciA, 'is_reverse': o1_is_reverse},
+                'B' : {'chrom': chromB, 'pos' : posB, 'ci': ciB, 'is_reverse': o2_is_reverse},
+            }
+        else:
+            breakpoints = {
+                'svtype' : svtype,
+                'var_length' : var_length,
+                'A' : {'chrom': chromA, 'pos' : posA, 'ci': ciA, 'is_reverse': o1_is_reverse},
+                'B' : {'chrom': chromB, 'pos' : posB, 'ci': ciB, 'is_reverse': o2_is_reverse},
+            }
+
+        for k in ('A', 'B'):
+            if breakpoints[k]['is_reverse']:
+                breakpoints[k]['pos'] += 1
+
+        return breakpoints
+
+    def get_variant_breakpoints(self, variant):
+        if self._bnd_breakpoint_func is None:
+            func = self._init_bnd_breakpoint_func()
+            self._bnd_breakpoint_func = func
+
+        breakpoints = None
+        if variant.get_svtype() == 'BND':
+            func = self._bnd_breakpoint_func
+            breakpoints = func(variant)
+        else:
+            breakpoints = self._default_get_breakpoints(variant)
+
+        return breakpoints
 
     class Info(object):
         def __init__(self, id, number, type, desc):
@@ -229,6 +345,27 @@ class Variant(object):
             '\t'.join(self.genotype(s).get_gt_string() for s in self.sample_list)
         ]))
         return s
+
+    def write(self, fd=None):
+        if fd is None:
+            fd = sys.stdout
+        print(self.get_var_string, file=fd)
+
+    def is_svtype(self):
+        flag = True
+        try:
+            svtype = self.get_info('SVTYPE')
+        except KeyError:
+            flag = False
+        return flag
+
+    def get_svtype(self):
+        return self.get_info('SVTYPE')
+
+    def is_valid_svtype(self):
+        svtype = self.get_svtype()
+        flag = True if svtype in ('BND', 'DEL', 'DUP', 'INV') else False
+        return flag
 
 class Genotype(object):
     def __init__(self, variant, sample_name, gt):
@@ -571,6 +708,64 @@ class Sample(object):
 
         return
 
+    def close(self):
+        self.bam.close()
+
+# ==================================================
+# Class for reads, containing only needed read
+# read information from a CRAM/BAM/SAM fetch
+# ==================================================
+class LiteRead(object):
+    def __init__(self, pysam_read, min_aligned, breakpoint):
+        self.query_name = pysam_read.query_name
+        self.is_unmapped = pysam_read.is_unmapped
+        self.is_duplicate = pysam_read.is_duplicate
+        self.is_supplementary = pysam_read.is_supplementary
+        self.is_reverse = pysam_read.is_reverse
+        self.is_secondary = pysam_read.is_secondary
+        self.reference_name = pysam_read.reference_name
+        self.reference_start = pysam_read.reference_start
+        self.reference_end = pysam_read.reference_end
+        self.query_length = pysam_read.query_length
+        self.query_alignment_length = pysam_read.query_alignment_length
+        self.mapping_quality = pysam_read.mapping_quality
+        self.cigar = pysam_read.cigartuples
+
+        self.is_ref_seq = self._calculate_is_ref_seq(pysam_read, chrom, pos, min_aligned, breakpoint)
+        self.tags = { tag[0] : tag[1] for tag in pysam_read.get_tags() }
+
+    @classmethod
+    def __json_decoder__(cls, params):
+        instance = cls.__new__()
+        instance.__dict__.update(params['__LiteRead__'])
+        return instance
+
+    def _calculate_is_ref_seq(self, pysam_read, min_aligned, breakpoint):
+        for side ('A', 'B'):
+            chrom = breakpoint[side]['chrom']
+            pos = breakpoint[side]['pos']
+
+            # check chromosome matching
+            # Note: this step is kind of slow
+            if self.reference_name != chrom:
+                return False
+
+            # ensure there is min_aligned on both sides of position
+            if pysam_read.get_overlap(max(0, pos - min_aligned), pos + min_aligned) < 2 * min_aligned:
+                return False
+        
+        return True
+
+    def has_tag(self, tag):
+        rv = True if tag in self.tags else False
+        return rv
+
+    def get_tag(self, tag):
+        if tag not in self.tags:
+            msg = "[err] Did not find tag '{}' in read '{}'".format(tag, self.query_name)
+            raise KeyError(msg)
+        return self.tags[tag]
+
 # ==================================================
 # Class for SAM fragment, containing all alignments
 # from a single molecule
@@ -652,6 +847,9 @@ class SamFragment(object):
                    read,
                    chrom, pos, ci,
                    min_aligned):
+        if isinstance(read, LiteRead):
+            return read.is_ref_seq
+
         # check chromosome matching
         # Note: this step is kind of slow
         if read.reference_name != chrom:
