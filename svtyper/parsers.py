@@ -731,7 +731,7 @@ class LiteRead(object):
         self.mapping_quality = pysam_read.mapping_quality
         self.cigar = pysam_read.cigartuples
 
-        self.is_ref_seq = self._calculate_is_ref_seq(pysam_read, chrom, pos, min_aligned, breakpoint)
+        self.is_ref_seq = self._calculate_is_ref_seq(pysam_read, min_aligned, breakpoint)
         self.tags = { tag[0] : tag[1] for tag in pysam_read.get_tags() }
 
     @classmethod

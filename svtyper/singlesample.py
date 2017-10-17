@@ -2,7 +2,7 @@ from __future__ import print_function
 import json, sys, os, math, argparse
 
 import svtyper.version
-from svtyper.parsers import Vcf, Variant, Sample, lite_read_json_decoder, lite_read_json_encoder
+from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
 from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples
 
 import pysam
@@ -117,7 +117,7 @@ def collect_breakpoints(vcf):
         if not variant.is_valid_svtype(): continue
         brkpts = vcf.get_variant_breakpoints(variant)
         if brkpts is None: continue
-        breakpoints.extend(brkpts)
+        breakpoints.append(brkpts)
     return breakpoints
 
 def get_breakpoint_regions(breakpoint, sample, z):
@@ -135,7 +135,7 @@ def get_breakpoint_regions(breakpoint, sample, z):
         left_pos = int(max(pos + ci[0] - fetch_flank, 0))
         right_pos = int(min(pos + ci[1] + fetch_flank, chrom_length))
 
-        regions.append((chrom, pos, left_pos, right_pos))
+        regions.append((sample.name, chrom, pos, left_pos, right_pos))
 
     return regions
 
@@ -164,16 +164,16 @@ def collect_region_reads(sample, chrom, pos, left_pos, right_pos, max_reads, min
 
 def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     cache = {}
-    for b in breakpoint:
+    for b in breakpoints:
         (regionA, regionB) = get_breakpoint_regions(b, sample, z)
         cache[regionA] = b
         cache[regionB] = b
-    sorted_regions = cache.keys().sort(key=lambda elem: (elem[0], elem[1], elem[2], elem[3]))
+    sorted_regions = sorted(cache.keys(), key=lambda elem: (elem[0], elem[1], elem[2], elem[3], elem[4]))
 
     db_file = 'reads.json.db'
     with open(db_file, 'w') as db:
         for r in sorted_regions:
-            (chrom, pos, left_pos, right_pos) = r
+            (sample_name, chrom, pos, left_pos, right_pos) = r
             reads = collect_region_reads(
                 sample,
                 chrom,
@@ -190,7 +190,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
                 default=lite_read_json_encoder
             )
 
-            index = json.dumps((sample.name, chrom, left_pos, right_pos))
+            index = json.dumps((sample.name, chrom, pos, left_pos, right_pos))
             print(index, json_reads, sep="\t", file=db)
 
     return db_file
@@ -208,7 +208,7 @@ def load_breakpoints_db(dbfile):
     with open(dbfile, 'r') as f:
         for line in f:
             (region_json, reads_json) = line.rstrip().split('\t')
-            region = decode_region(region_string)
+            region = decode_region(region_json)
             reads = decode_reads(reads_json)
             store[region] = reads
     return store
@@ -474,7 +474,7 @@ def bayesian_genotype(variant, sample, counts, split_weight, disc_weight):
     
     return variant
 
-def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, brkpt_db, debug):
+def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, breakpt_db, debug):
     (read_batches, many) = gather_reads(breakpoint, sample, z, breakpt_db)
 
     # if there are too many reads around the breakpoint
@@ -503,11 +503,11 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     return variant
 
 def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug):
-    db = load_breakpoint_db(breakpoints_db)
+    db = load_breakpoints_db(breakpoints_db)
     bnd_cache = {}
     for vline in vcf_variants(src_vcf.filename):
         v = vline.rstrip().split('\t')
-        variant = Variant(v, vcf)
+        variant = Variant(v, src_vcf)
         if not sum_quals:
             variant.qual = 0
 
@@ -537,8 +537,8 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
                 bnd_cache[variant.var_id] = variant
                 continue
 
-        brkpts = vcf.get_variant_breakpoints(variant)
-        if brkpts is None:
+        breakpoints = src_vcf.get_variant_breakpoints(variant)
+        if breakpoints is None:
             continue
 
         variant = calculate_genotype(
@@ -549,7 +549,7 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
                 min_aligned,
                 split_weight,
                 disc_weight,
-                breakpoint,
+                breakpoints,
                 db,
                 debug
         )
