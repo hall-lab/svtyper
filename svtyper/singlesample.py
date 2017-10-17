@@ -501,12 +501,14 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     variant = bayesian_genotype(variant, sample, counts, split_weight, disc_weight)
     return variant
 
-def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoints_db, debug):
+def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug):
     db = load_breakpoint_db(breakpoints_db)
     bnd_cache = {}
     for vline in vcf_variants(src_vcf.filename):
         v = vline.rstrip().split('\t')
         variant = Variant(v, vcf)
+        if not sum_quals:
+            variant.qual = 0
 
         if not variant.is_svtype():
             msg = ('Warning: SVTYPE missing '
@@ -600,7 +602,7 @@ def sso_genotype(bam_string,
         breakpoints_db = store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned)
 
         # 2nd pass through input vcf -- perform actual genotyping
-        genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoints_db, debug)
+        genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug)
 
     sample.close()
 
