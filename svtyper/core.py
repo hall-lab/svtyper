@@ -47,6 +47,62 @@ description: Compute genotype of structural variants based on breakpoint depth")
     # send back the user input
     return args
 
+# methods to grab reads from region of interest in BAM file
+def gather_all_reads(sample, chromA, posA, ciA, chromB, posB, ciB, z, max_reads):
+    # grab batch of reads from both sides of breakpoint
+    read_batch = {}
+    read_batch, many = gather_reads(sample, chromA, posA, ciA, z, read_batch, max_reads)
+    if many:
+        return {}, True
+
+    read_batch, many = gather_reads(sample, chromB, posB, ciB, z, read_batch, max_reads)
+    if many:
+        return {}, True
+
+    return read_batch, many
+
+def gather_reads(sample,
+                 chrom, pos, ci,
+                 z,
+                 fragment_dict,
+                 max_reads):
+
+    # the distance to the left and right of the breakpoint to scan
+    # (max of mean + z standard devs over all of a sample's libraries)
+    fetch_flank = sample.get_fetch_flank(z)
+    chrom_length = sample.bam.lengths[sample.bam.gettid(chrom)]
+
+    many = False
+
+    reads = fetch_reads_from_bam(
+        sample,
+        chrom,
+        max(pos + ci[0] - fetch_flank, 0),
+        min(pos + ci[1] + fetch_flank, chrom_length)
+    )
+
+    for i, read in enumerate(reads):
+        if read.is_unmapped or read.is_duplicate:
+            continue
+
+        lib = sample.get_lib(read.get_tag('RG'))
+        if lib not in sample.active_libs:
+            continue
+
+        # read.query_sequence = "*"
+        # read.query_qualities = "*"
+        if max_reads is not None and i > max_reads:
+            many = True
+            break
+
+        if read.query_name in fragment_dict:
+            fragment_dict[read.query_name].add_read(read)
+        else:
+            fragment_dict[read.query_name] = SamFragment(read, lib)
+
+    return fragment_dict, many
+
+
 # ==================================================
 # Genotyping function
 # ==================================================
