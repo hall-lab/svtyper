@@ -152,7 +152,7 @@ class Vcf(object):
                 else: o2_is_reverse = True
 
                 breakpoints = {
-                    'svtype' : svtype,
+                    'svtype' : 'BND',
                     'A' : {'chrom': chromA, 'pos' : posA, 'ci': ciA, 'is_reverse': o1_is_reverse},
                     'B' : {'chrom': chromB, 'pos' : posB, 'ci': ciB, 'is_reverse': o2_is_reverse},
                 }
@@ -180,6 +180,7 @@ class Vcf(object):
         # confidence intervals
         ciA = map(int, variant.info['CIPOS'].split(','))
         ciB = map(int, variant.info['CIEND'].split(','))
+        svtype = variant.get_svtype()
         if svtype == 'DEL':
             var_length = posB - posA
             o1_is_reverse, o2_is_reverse =  False, True
