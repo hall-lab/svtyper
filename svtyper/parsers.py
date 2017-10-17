@@ -19,6 +19,23 @@ class Vcf(object):
         self.add_format('GT', 1, 'String', 'Genotype')
         self.header_misc = []
 
+    def add_custom_svtyper_headers(self):
+        self.add_info('SVTYPE', 1, 'String', 'Type of structural variant')
+        self.add_format('GQ', 1, 'Integer', 'Genotype quality')
+        self.add_format('SQ', 1, 'Float', 'Phred-scaled probability that this site is variant (non-reference in this sample')
+        self.add_format('GL', 'G', 'Float', 'Genotype Likelihood, log10-scaled likelihoods of the data given the called genotype for each possible genotype generated from the reference and alternate alleles given the sample ploidy')
+        self.add_format('DP', 1, 'Integer', 'Read depth')
+        self.add_format('RO', 1, 'Integer', 'Reference allele observation count, with partial observations recorded fractionally')
+        self.add_format('AO', 'A', 'Integer', 'Alternate allele observations, with partial observations recorded fractionally')
+        self.add_format('QR', 1, 'Integer', 'Sum of quality of reference observations')
+        self.add_format('QA', 'A', 'Integer', 'Sum of quality of alternate observations')
+        self.add_format('RS', 1, 'Integer', 'Reference allele split-read observation count, with partial observations recorded fractionally')
+        self.add_format('AS', 'A', 'Integer', 'Alternate allele split-read observation count, with partial observations recorded fractionally')
+        self.add_format('ASC', 'A', 'Integer', 'Alternate allele clipped-read observation count, with partial observations recorded fractionally')
+        self.add_format('RP', 1, 'Integer', 'Reference allele paired-end observation count, with partial observations recorded fractionally')
+        self.add_format('AP', 'A', 'Integer', 'Alternate allele paired-end observation count, with partial observations recorded fractionally')
+        self.add_format('AB', 'A', 'Float', 'Allele balance, fraction of observations from alternate allele, QA/(QR+QA)')
+
     def add_header(self, header):
         for line in header:
             if line.split('=')[0] == '##fileformat':
