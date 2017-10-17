@@ -73,15 +73,9 @@ def gather_reads(sample,
     chrom_length = sample.bam.lengths[sample.bam.gettid(chrom)]
 
     many = False
-
-    reads = fetch_reads_from_bam(
-        sample,
-        chrom,
-        max(pos + ci[0] - fetch_flank, 0),
-        min(pos + ci[1] + fetch_flank, chrom_length)
-    )
-
-    for i, read in enumerate(reads):
+    for i, read in enumerate(sample.bam.fetch(chrom,
+                                 max(pos + ci[0] - fetch_flank, 0),
+                                 min(pos + ci[1] + fetch_flank, chrom_length))):
         if read.is_unmapped or read.is_duplicate:
             continue
 

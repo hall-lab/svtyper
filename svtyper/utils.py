@@ -60,33 +60,6 @@ def prob_mapq(read):
     return 1 - 10 ** (-read.mapping_quality / 10.0)
 
 # ==================================================
-# Memoization Helpers
-# ==================================================
-def memoize_bam_search(func):
-    cache = {}
-
-    @wraps(func)
-    def wrap(*args):
-        # skip the fragment_dict input to gather_reads
-        (sample, chrom, lpos, rpos) = args
-        inputs = (sample.name, chrom, lpos, rpos)
-        if inputs not in cache:
-            sys.stderr.write('invoking bam search fn -- {} -- '.format(inputs))
-            cache[inputs] = func(*args)
-            sys.stderr.write('length: {} \n'.format(len(cache[inputs])))
-        else:
-            sys.stderr.write('using cached results -- {}\n'.format(inputs))
-        return cache[inputs]
-
-    return wrap
-
-
-@memoize_bam_search
-def fetch_reads_from_bam(sample, chrom, left_pos, right_pos):
-    return list(sample.bam.fetch(chrom, left_pos, right_pos))
-
-
-# ==================================================
 # logging
 # ==================================================
 
