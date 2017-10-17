@@ -956,7 +956,7 @@ class SplitRead(object):
             self.reference_end = None
             self.is_reverse = is_reverse
             self.cigar = cigar
-            self.mapq = mapq
+            self.mapping_quality = mapq
             self.left_query = None
             self.right_query = None
 
