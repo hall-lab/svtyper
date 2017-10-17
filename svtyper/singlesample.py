@@ -96,7 +96,8 @@ def dump_piped_vcf_to_file(stdin, basedir):
 def init_vcf(vcffile, sample, scratchdir):
     v = Vcf()
     v.filename = vcffile
-    [v.add_header(hdr) for hdr in vcf_headers(vcffile)]
+    hdrs = list(vcf_headers(vcffile))
+    v.add_header(hdrs)
     v.add_custom_svtyper_headers()
     vcf_samples_list = vcf_samples(vcffile)
     if sample.name not in vcf_samples(vcffile):
