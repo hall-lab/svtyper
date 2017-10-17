@@ -55,7 +55,7 @@ def write_sample_json(sample_list, lib_info_file):
 
 # get the non-phred-scaled mapq of a read
 def prob_mapq(read):
-    return 1 - 10 ** (-read.mapq / 10.0)
+    return 1 - 10 ** (-read.mapping_quality / 10.0)
 
 # ==================================================
 # Memoization Helpers
