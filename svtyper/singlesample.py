@@ -100,12 +100,12 @@ def init_vcf(vcffile, sample, scratchdir):
     v.add_header(hdrs)
     v.add_custom_svtyper_headers()
     vcf_samples_list = vcf_samples(vcffile)
-    if sample.name not in vcf_samples(vcffile):
+    if sample.name not in vcf_samples_list:
         fname = '<stdin>' if scratchdir in v.filename else v.filename
-        msg = ("Error: Did not find sample name : '{}' "
-               "in input vcf: '{}'").format(sample.name, fname)
-        die(msg)
-    vcf.add_sample(sample.name)
+        msg = ("Note: Did not find sample name : '{}' "
+               "in input vcf: '{}' -- adding").format(sample.name, fname)
+        logit(msg)
+    v.add_sample(sample.name)
     return v
 
 def collect_breakpoints(vcf):
