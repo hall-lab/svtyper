@@ -8,7 +8,6 @@ from svtyper.statistics import mean, stdev, median, upper_mad
 # ==================================================
 # JSON encoding tools
 # ==================================================
-# https://code.tutsplus.com/tutorials/serialization-and-deserialization-of-python-objects-part-1--cms-26183
 # https://stackoverflow.com/questions/26033239/list-of-objects-to-json-with-python
 def lite_read_json_encoder(obj):
     if isinstance(obj, LiteRead):
