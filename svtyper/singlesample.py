@@ -519,8 +519,11 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     return variant
 
 def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug):
+    # initializations
     db = load_breakpoints_db(breakpoints_db)
     bnd_cache = {}
+    src_vcf.write_header(out_vcf)
+
     for vline in vcf_variants(src_vcf.filename):
         v = vline.rstrip().split('\t')
         variant = Variant(v, src_vcf)

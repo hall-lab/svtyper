@@ -104,6 +104,11 @@ class Vcf(object):
                                   )])
         return header
 
+    def write_header(self, fd=None):
+        if fd is None:
+            fd = sys.stdout
+        print(self.get_header(), file=fd)
+
     def add_info(self, id, number, type, desc):
         if id not in [i.id for i in self.info_list]:
             inf = self.Info(id, number, type, desc)
