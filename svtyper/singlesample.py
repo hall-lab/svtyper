@@ -534,6 +534,8 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
             variant.write(out_vcf)
             continue
 
+        breakpoints = src_vcf.get_variant_breakpoints(variant)
+
         # special BND processing
         if variant.get_svtype() == 'BND':
             if variant.info['MATEID'] in bnd_cache:
@@ -544,8 +546,10 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
                 bnd_cache[variant.var_id] = variant
                 continue
 
-        breakpoints = src_vcf.get_variant_breakpoints(variant)
         if breakpoints is None:
+            msg = ("Found no breakpoints for variant "
+                   "'{}' ({})").format(variant.var_id, variant.get_svtype())
+            logit(msg)
             continue
 
         variant = calculate_genotype(
