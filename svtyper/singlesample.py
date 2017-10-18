@@ -571,7 +571,7 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
             variant2.qual = variant.qual
             variant2.active_formats = variant.active_formats
             variant2.genotype = variant.genotype
-            variant2.write(vcf_out)
+            variant2.write(out_vcf)
 
 def sso_genotype(bam_string,
                  vcf_in,

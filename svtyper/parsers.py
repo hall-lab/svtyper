@@ -348,7 +348,7 @@ class Variant(object):
     def write(self, fd=None):
         if fd is None:
             fd = sys.stdout
-        print(self.get_var_string, file=fd)
+        print(self.get_var_string(), file=fd)
 
     def is_svtype(self):
         flag = True
