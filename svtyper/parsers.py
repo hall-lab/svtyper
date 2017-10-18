@@ -15,8 +15,7 @@ def lite_read_json_encoder(obj):
 
 def lite_read_json_decoder(dct):
     if '__LiteRead__' in dct:
-        # https://stackoverflow.com/questions/19476816/creating-an-empty-object-in-python
-        obj = type('LiteRead', (), {})()
+        obj = LiteRead()
         obj.__dict__.update(dct['__LiteRead__'])
         return obj
     else:
@@ -716,7 +715,10 @@ class Sample(object):
 # read information from a CRAM/BAM/SAM fetch
 # ==================================================
 class LiteRead(object):
-    def __init__(self, pysam_read, min_aligned, breakpoint):
+    def __init__(self, pysam_read=None, min_aligned=None, breakpoint=None):
+        if pysam_read is None:
+            return
+
         self.query_name = pysam_read.query_name
         self.is_unmapped = pysam_read.is_unmapped
         self.is_duplicate = pysam_read.is_duplicate
@@ -730,6 +732,7 @@ class LiteRead(object):
         self.query_alignment_length = pysam_read.query_alignment_length
         self.mapping_quality = pysam_read.mapping_quality
         self.cigar = pysam_read.cigartuples
+        self.pos = pysam_read.pos
 
         self.is_ref_seq = self._calculate_is_ref_seq(pysam_read, min_aligned, breakpoint)
         self.tags = { tag[0] : tag[1] for tag in pysam_read.get_tags() }
@@ -753,7 +756,7 @@ class LiteRead(object):
             # ensure there is min_aligned on both sides of position
             if pysam_read.get_overlap(max(0, pos - min_aligned), pos + min_aligned) < 2 * min_aligned:
                 return False
-        
+
         return True
 
     def has_tag(self, tag):

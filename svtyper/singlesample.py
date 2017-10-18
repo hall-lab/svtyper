@@ -4,6 +4,7 @@ import json, sys, os, math, argparse
 import svtyper.version
 from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
 from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples
+from svtyper.statistics import bayes_gt
 
 import pysam
 
@@ -224,6 +225,7 @@ def gather_reads(breakpoint, sample, z, breakpoints_db):
             if read.query_name in fragment_dict:
                 fragment_dict[read.query_name].add_read(read)
             else:
+                lib = sample.get_lib(read.get_tag('RG'))
                 fragment_dict[read.query_name] = SamFragment(read, lib)
     
     return (fragment_dict, False)
@@ -287,8 +289,8 @@ def check_paired_end_evidence(fragment, breakpoint, min_aligned):
     ref_ciB = [0,0]
 
     elems = ('chrom', 'pos', 'ci', 'is_reverse')
-    (chromA, posA, ciA, o1_is_reverse) = tuple(breakpoint['A'][i] for i in entries)
-    (chromB, posB, ciB, o2_is_reverse) = tuple(breakpoint['B'][i] for i in entries)
+    (chromA, posA, ciA, o1_is_reverse) = tuple(breakpoint['A'][i] for i in elems)
+    (chromB, posB, ciB, o2_is_reverse) = tuple(breakpoint['B'][i] for i in elems)
     svtype = breakpoint['svtype']
 
     # tally spanning alternate pairs
@@ -350,6 +352,7 @@ def check_paired_end_evidence(fragment, breakpoint, min_aligned):
         # don't allow the pair to jump the entire variant, except for
         # length-changing SVs like deletions
         if not (ref_straddle_A and ref_straddle_B) or svtype == 'DEL':
+            var_length = breakpoint.get('var_length', None)
             p_conc = fragment.p_concordant(var_length)
             if p_conc is not None:
                 p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
@@ -408,13 +411,17 @@ def tally_variant_read_fragments(variant, sample, split_slop, min_aligned, break
 
     return counts
 
-def bayesian_genotype(variant, sample, counts, split_weight, disc_weight):
+def bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug):
     is_dup = True if variant.get_svtype() == 'DUP' else False
 
+    elems = ('ref_seq', 'alt_seq', 'alt_clip', 'ref_span', 'alt_span')
+    (ref_seq, alt_seq, alt_clip, ref_span, alt_span) = \
+        tuple(counts[i] for i in elems)
+
     # pre-calculations
-    alt_splitters = counts['alt_seq'] + counts['alt_clip']
-    QR = int(split_weight * counts['ref_seq']) + int(disc_weight * counts['ref_span'])
-    QA = int(split_weight * alt_splitters) + int(disc_weight * counts['alt_span'])
+    alt_splitters = alt_seq + alt_clip
+    QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
+    QA = int(split_weight * alt_splitters) + int(disc_weight * alt_span)
 
     # the actual bayesian calculation and decision
     gt_lplist = bayes_gt(QR, QA, is_dup)
@@ -499,7 +506,7 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     if total == 0:
         return make_detailed_empty_genotype(variant, sample)
 
-    variant = bayesian_genotype(variant, sample, counts, split_weight, disc_weight)
+    variant = bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
     return variant
 
 def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug):
