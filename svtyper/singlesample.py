@@ -55,14 +55,23 @@ def open_alignment_file(afile, reference_fasta):
 
     return fd
 
-def setup_sample(bam, reference_fasta, sampling_number, min_aligned):
+def setup_sample(bam, lib_info_path, reference_fasta, sampling_number, min_aligned):
     fd = open_alignment_file(bam, reference_fasta)
 
     # only consider libraries that constitute at least this fraction of the BAM
     min_lib_prevalence = 1e-3
 
-    # calculate and include library metrics from bam/cram
-    sample = Sample.from_bam(fd, sampling_number, min_lib_prevalence)
+    sample = None
+    if (lib_info_path is not None) and os.path.exists(lib_info_path):
+        # use pre-calculated library metrics
+        logit('Reading library metrics from %s...' % lib_info_path)
+        with open(lib_info_path, 'r') as f:
+            lib_info = json.load(f)
+            sample = Sample.from_lib_info(fd, lib_info, min_lib_prevalence)
+    else:
+        # calculate and include library metrics from bam/cram
+        sample = Sample.from_bam(fd, sampling_number, min_lib_prevalence)
+
     sample.set_exp_seq_depth(min_aligned)
     sample.set_exp_spanning_depth(min_aligned)
 
@@ -70,7 +79,7 @@ def setup_sample(bam, reference_fasta, sampling_number, min_aligned):
 
 def dump_library_metrics(lib_info_path, sample):
     sample_list = [sample]
-    if lib_info_path is not None:
+    if (lib_info_path is not None) and (not os.path.exists(lib_info_path)):
         logit('Writing library metrics to %s...' % lib_info_path)
         lib_info_file = open(lib_info_path, 'w')
         write_sample_json(sample_list, lib_info_file)
@@ -593,7 +602,7 @@ def sso_genotype(bam_string,
     (invcf, outvcf) = (vcf_in.name, vcf_out.name)
     ensure_valid_alignment_file(bam_string)
 
-    sample = setup_sample(bam_string, ref_fasta, num_samp, min_aligned)
+    sample = setup_sample(bam_string, lib_info_path, ref_fasta, num_samp, min_aligned)
     dump_library_metrics(lib_info_path, sample)
 
     # set variables for genotyping
