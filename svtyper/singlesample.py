@@ -190,7 +190,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
         i = 0
         for r in sorted_regions:
             (sample_name, chrom, pos, left_pos, right_pos) = r
-            if i % 1000 == 0:
+            if i % 100000 == 0:
                 logit("[{} | {}] Processing region: {}".format(i, total_regions, r))
             reads = collect_region_reads(
                 sample,
