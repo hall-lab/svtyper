@@ -381,18 +381,15 @@ def tally_variant_read_fragments(variant, sample, split_slop, min_aligned, break
     for query_name in sam_fragments:
         fragment = sam_fragments[query_name]
 
-        (ref_seq_calc,
-         alt_seq_calc,
-         alt_clip_calc) = check_split_read_evidence(fragment, breakpoint, split_slop)
+        (ref_seq_calc, alt_seq_calc, alt_clip_calc) = \
+                check_split_read_evidence(fragment, breakpoint, split_slop)
 
         ref_seq += ref_seq_calc
         alt_seq += alt_seq_calc
         alt_clip += alt_clip_calc
 
-        (ref_span_calc,
-         alt_span_calc,
-         ref_ciA_calc,
-         ref_ciB_calc) = check_paired_end_evidence(fragment, breakpoint, min_aligned)
+        (ref_span_calc, alt_span_calc, ref_ciA_calc, ref_ciB_calc) = \
+                check_paired_end_evidence(fragment, breakpoint, min_aligned)
 
         ref_span += ref_span_calc
         alt_span += alt_span_calc
