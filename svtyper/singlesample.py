@@ -174,16 +174,24 @@ def collect_region_reads(sample, chrom, pos, left_pos, right_pos, max_reads, min
 
 def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     cache = {}
+    logit("Collecting regions")
     for b in breakpoints:
         (regionA, regionB) = get_breakpoint_regions(b, sample, z)
         cache[regionA] = b
         cache[regionB] = b
+    logit("Sorting regions")
     sorted_regions = sorted(cache.keys(), key=lambda elem: (elem[0], elem[1], elem[2], elem[3], elem[4]))
+    total_regions = len(sorted_regions)
+    logit("Going to process {} regions".format(total_regions))
 
     db_file = 'reads.json.db'
+    logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
     with open(db_file, 'w') as db:
+        i = 0
         for r in sorted_regions:
             (sample_name, chrom, pos, left_pos, right_pos) = r
+            if i % 1000 == 0:
+                logit("[{} | {}] Processing region: {}".format(i, total_regions, r))
             reads = collect_region_reads(
                 sample,
                 chrom,
@@ -202,6 +210,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
 
             index = json.dumps((sample.name, chrom, pos, left_pos, right_pos))
             print(index, json_reads, sep="\t", file=db)
+            i += 1
 
     return db_file
 
