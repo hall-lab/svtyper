@@ -149,7 +149,7 @@ def get_breakpoint_regions(breakpoint, sample, z):
 
     return regions
 
-def collect_region_reads(sample, chrom, pos, left_pos, right_pos, max_reads, min_aligned, breakpoint):
+def collect_region_reads(sample, chrom, left_pos, right_pos, max_reads, min_aligned, breakpoint):
     sam_reads = sample.bam.fetch(chrom, left_pos, right_pos)
 
     too_many = { 'many' : True, 'reads' : [] }
@@ -195,7 +195,6 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
             reads = collect_region_reads(
                 sample,
                 chrom,
-                pos,
                 left_pos,
                 right_pos,
                 max_reads,
