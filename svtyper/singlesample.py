@@ -1,5 +1,5 @@
 from __future__ import print_function
-import json, sys, os, math, argparse
+import json, sys, os, math, argparse, gzip, anydbm
 
 import svtyper.version
 from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
@@ -184,32 +184,32 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     total_regions = len(sorted_regions)
     logit("Going to process {} regions".format(total_regions))
 
-    reads_db = {}
-    i = 0
-    for r in sorted_regions:
-        (sample_name, chrom, pos, left_pos, right_pos) = r
-        if i % 100000 == 0:
-            logit("[{} | {}] Processing region: {}".format(i, total_regions, r))
-        reads = collect_region_reads(
-            sample,
-            chrom,
-            left_pos,
-            right_pos,
-            max_reads,
-            min_aligned,
-            cache[r]
-        )
-        reads_db[r] = reads
-        i += 1
-    return reads_db
-
-#    db_file = 'reads.json.db'
+#    reads_db = {}
+#    i = 0
+#    for r in sorted_regions:
+#        (sample_name, chrom, pos, left_pos, right_pos) = r
+#        if i % 100000 == 0:
+#            logit("[{} | {}] Processing region: {}".format(i, total_regions, r))
+#        reads = collect_region_reads(
+#            sample,
+#            chrom,
+#            left_pos,
+#            right_pos,
+#            max_reads,
+#            min_aligned,
+#            cache[r]
+#        )
+#        reads_db[r] = reads
+#        i += 1
+#    return reads_db
+#
+#    db_file = 'reads.json.db.gz'
 #    logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
-#    with open(db_file, 'w') as db:
+#    with gzip.open(db_file, 'w') as db:
 #        i = 0
 #        for r in sorted_regions:
 #            (sample_name, chrom, pos, left_pos, right_pos) = r
-#            if i % 100000 == 0:
+#            if i % 10000 == 0:
 #                db_size_bytes = os.path.getsize(db_file)
 #                db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
 #                logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
@@ -231,8 +231,37 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
 #            index = json.dumps((sample.name, chrom, pos, left_pos, right_pos))
 #            print(index, json_reads, sep="\t", file=db)
 #            i += 1
-#
-#    return db_file
+
+    db_file = '/tmp/6212687.tmpdir/reads.json.db'
+    logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
+    with anydbm.open(db_file, 'w') as db:
+        i = 0
+        for r in sorted_regions:
+            (sample_name, chrom, pos, left_pos, right_pos) = r
+            if i % 10000 == 0:
+                db_size_bytes = os.path.getsize(db_file)
+                db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
+                logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
+            reads = collect_region_reads(
+                sample,
+                chrom,
+                left_pos,
+                right_pos,
+                max_reads,
+                min_aligned,
+                cache[r]
+            )
+            json_reads = json.dumps(
+                reads,
+                separators=(',', ':'),
+                default=lite_read_json_encoder
+            )
+
+            index = str(r)
+            db[index] = json_reads
+            i += 1
+
+    return db_file
 
 def decode_region(region_json_string):
     region = tuple(json.loads(region_json_string))
@@ -244,7 +273,7 @@ def decode_reads(reads_json_string):
 
 def load_breakpoints_db(dbfile):
     store = {}
-    with open(dbfile, 'r') as f:
+    with gzip.open(dbfile, 'r') as f:
         for line in f:
             (region_json, reads_json) = line.rstrip().split('\t')
             region = decode_region(region_json)
@@ -252,11 +281,18 @@ def load_breakpoints_db(dbfile):
             store[region] = reads
     return store
 
+def retrieve_reads_from_db(db, region):
+    index = str(region)
+    reads_json = db[index]
+    reads = decode_reads(reads_json)
+    return reads
+
 def gather_reads(breakpoint, sample, z, breakpoints_db):
     fragment_dict = {}
     regions = get_breakpoint_regions(breakpoint, sample, z)
     for side in regions:
-        read_data = breakpoints_db[side]
+        #read_data = breakpoints_db[side]
+        read_data = retrieve_reads_from_db(db, side)
         if read_data['many'] is True:
             return ({}, read_data['many'])
         for read in read_data['reads']:
@@ -546,8 +582,9 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
 
 def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug):
     # initializations
-#    db = load_breakpoints_db(breakpoints_db)
-    db = breakpoints_db
+    db = anydbm.open(breakpoints_db, 'r')
+#    db = load_breakpoints_db(breakpoints_db) # json file-based approach
+#    db = breakpoints_db # in-memory approach
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
 
@@ -611,6 +648,8 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
             variant2.active_formats = variant.active_formats
             variant2.genotype = variant.genotype
             variant2.write(out_vcf)
+
+    db.close()
 
 def sso_genotype(bam_string,
                  vcf_in,
