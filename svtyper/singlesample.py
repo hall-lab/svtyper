@@ -264,7 +264,7 @@ def make_detailed_empty_genotype(variant, sample):
     return variant
 
 def check_split_read_evidence(sam_fragment, breakpoint, split_slop):
-    (ref_seq, alt_seq, alt_clip) = (0.0, 0.0, 0.0)
+    (ref_seq, alt_seq, alt_clip) = (0, 0, 0)
 
     # get reference sequences
     for read in sam_fragment.primary_reads:
