@@ -738,9 +738,13 @@ class LiteRead(object):
         self.mapping_quality = pysam_read.mapping_quality
         self.cigar = pysam_read.cigartuples
         self.pos = pysam_read.pos
+        self.object_id = pysam_read.__hash__()
 
         self.is_ref_seq = self._calculate_is_ref_seq(pysam_read, min_aligned, breakpoint)
         self.tags = { tag[0] : tag[1] for tag in pysam_read.get_tags() }
+
+    def __hash__(self):
+        return self.object_id
 
     @classmethod
     def __json_decoder__(cls, params):
