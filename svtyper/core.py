@@ -299,9 +299,9 @@ def sv_genotype(bam_string,
 
                 # get reference sequences
                 for read in fragment.primary_reads:
-                    if (fragment.is_ref_seq(read, chromA, posA, ciA, min_aligned)
-                        or fragment.is_ref_seq(read, chromB, posB, ciB, min_aligned)):
-
+                    is_ref_seq_A = fragment.is_ref_seq(read, chromA, posA, ciA, min_aligned)
+                    is_ref_seq_B = fragment.is_ref_seq(read, chromB, posB, ciB, min_aligned)
+                    if (is_ref_seq_A or is_ref_seq_B):
                         p_reference = prob_mapq(read)
                         ref_seq += p_reference
 
