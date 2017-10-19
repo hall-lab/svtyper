@@ -288,7 +288,7 @@ def sv_genotype(bam_string,
             ref_ciA = [0,0]
             ref_ciB = [0,0]
 
-            for query_name in read_batch:
+            for query_name in sorted(read_batch.keys()):
                 fragment = read_batch[query_name]
                 # boolean on whether to write the fragment
                 write_fragment = False
