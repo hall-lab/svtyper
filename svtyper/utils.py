@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-import sys, time, datetime, os, contextlib, tempfile, shutil, json
+import sys, time, datetime, os, contextlib, tempfile, shutil, json, re
 from functools import wraps
 
 from svtyper.parsers import SamFragment, Vcf
@@ -50,6 +50,13 @@ def write_sample_json(sample_list, lib_info_file):
     json.dump(lib_info, lib_info_file, indent=4)
     lib_info_file.close()
 
+# ==================================================
+# Sorting Functions
+# ==================================================
+def sort_regions(region):
+    str_region = [ str(i) for i in region ]
+    key = '--'.join([str_region[i] for i in (0, 1, 3, 4)])
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', key)]
 
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments

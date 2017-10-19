@@ -3,7 +3,7 @@ import json, sys, os, math, argparse
 
 import svtyper.version
 from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
-from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples
+from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples, sort_regions
 from svtyper.statistics import bayes_gt
 
 import pysam
@@ -180,7 +180,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
         cache[regionA] = b
         cache[regionB] = b
     logit("Sorting regions")
-    sorted_regions = sorted(cache.keys(), key=lambda elem: (elem[0], elem[1], elem[2], elem[3], elem[4]))
+    sorted_regions = sorted(cache.keys(), key=sort_regions)
     total_regions = len(sorted_regions)
     logit("Going to process {} regions".format(total_regions))
 
