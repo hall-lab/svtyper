@@ -378,7 +378,7 @@ def tally_variant_read_fragments(variant, sample, split_slop, min_aligned, break
     ref_ciA = [0,0]
     ref_ciB = [0,0]
 
-    for query_name in sam_fragments:
+    for query_name in sorted(sam_fragments.keys()):
         fragment = sam_fragments[query_name]
 
         (ref_seq_calc, alt_seq_calc, alt_clip_calc) = \
