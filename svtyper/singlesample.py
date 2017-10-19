@@ -184,36 +184,55 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     total_regions = len(sorted_regions)
     logit("Going to process {} regions".format(total_regions))
 
-    db_file = 'reads.json.db'
-    logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
-    with open(db_file, 'w') as db:
-        i = 0
-        for r in sorted_regions:
-            (sample_name, chrom, pos, left_pos, right_pos) = r
-            if i % 100000 == 0:
-                db_size_bytes = os.path.getsize(db_file)
-                db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-                logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
-            reads = collect_region_reads(
-                sample,
-                chrom,
-                left_pos,
-                right_pos,
-                max_reads,
-                min_aligned,
-                cache[r]
-            )
-            json_reads = json.dumps(
-                reads,
-                separators=(',', ':'),
-                default=lite_read_json_encoder
-            )
+    reads_db = {}
+    i = 0
+    for r in sorted_regions:
+        (sample_name, chrom, pos, left_pos, right_pos) = r
+        if i % 100000 == 0:
+            logit("[{} | {}] Processing region: {}".format(i, total_regions, r))
+        reads = collect_region_reads(
+            sample,
+            chrom,
+            left_pos,
+            right_pos,
+            max_reads,
+            min_aligned,
+            cache[r]
+        )
+        reads_db[r] = reads
+        i += 1
+    return reads_db
 
-            index = json.dumps((sample.name, chrom, pos, left_pos, right_pos))
-            print(index, json_reads, sep="\t", file=db)
-            i += 1
-
-    return db_file
+#    db_file = 'reads.json.db'
+#    logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
+#    with open(db_file, 'w') as db:
+#        i = 0
+#        for r in sorted_regions:
+#            (sample_name, chrom, pos, left_pos, right_pos) = r
+#            if i % 100000 == 0:
+#                db_size_bytes = os.path.getsize(db_file)
+#                db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
+#                logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
+#            reads = collect_region_reads(
+#                sample,
+#                chrom,
+#                left_pos,
+#                right_pos,
+#                max_reads,
+#                min_aligned,
+#                cache[r]
+#            )
+#            json_reads = json.dumps(
+#                reads,
+#                separators=(',', ':'),
+#                default=lite_read_json_encoder
+#            )
+#
+#            index = json.dumps((sample.name, chrom, pos, left_pos, right_pos))
+#            print(index, json_reads, sep="\t", file=db)
+#            i += 1
+#
+#    return db_file
 
 def decode_region(region_json_string):
     region = tuple(json.loads(region_json_string))
@@ -527,7 +546,8 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
 
 def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug):
     # initializations
-    db = load_breakpoints_db(breakpoints_db)
+#    db = load_breakpoints_db(breakpoints_db)
+    db = breakpoints_db
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
 
