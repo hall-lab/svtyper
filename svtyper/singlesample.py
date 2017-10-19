@@ -1,5 +1,5 @@
 from __future__ import print_function
-import json, sys, os, math, argparse, gzip, anydbm
+import json, sys, os, math, argparse, gzip, anydbm, zlib, base64
 
 import svtyper.version
 from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
@@ -259,7 +259,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
         )
 
         index = str(r)
-        db[index] = json_reads
+        db[index] = base64.b64encode(zlib.compress(json_reads))
         i += 1
     db.close()
 
@@ -285,8 +285,8 @@ def load_breakpoints_db(dbfile):
 
 def retrieve_reads_from_db(db, region):
     index = str(region)
-    reads_json = db[index]
-    reads = decode_reads(reads_json)
+    reads_json_compressed_base64 = db[index]
+    reads = decode_reads(zlib.decompress(base64.b64decode(reads_json_compressed_base64)))
     return reads
 
 def gather_reads(breakpoint, sample, z, breakpoints_db):
