@@ -191,7 +191,9 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
         for r in sorted_regions:
             (sample_name, chrom, pos, left_pos, right_pos) = r
             if i % 100000 == 0:
-                logit("[{} | {}] Processing region: {}".format(i, total_regions, r))
+                db_size_bytes = os.path.getsize(db_file)
+                db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
+                logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
             reads = collect_region_reads(
                 sample,
                 chrom,
