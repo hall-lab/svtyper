@@ -753,18 +753,23 @@ class LiteRead(object):
         return instance
 
     def _calculate_is_ref_seq(self, pysam_read, min_aligned, breakpoint):
-        for side in ('A', 'B'):
-            chrom = breakpoint[side]['chrom']
-            pos = breakpoint[side]['pos']
+        is_ref_seq_A = self._is_ref_seq_for_side('A', breakpoint, pysam_read, min_aligned)
+        is_ref_seq_B = self._is_ref_seq_for_side('B', breakpoint, pysam_read, min_aligned)
+        verdict = is_ref_seq_A or is_ref_seq_B
+        return verdict
 
-            # check chromosome matching
-            # Note: this step is kind of slow
-            if self.reference_name != chrom:
-                return False
+    def _is_ref_seq_for_side(self, side, breakpoint, pysam_read, min_aligned):
+        elems = ('chrom', 'pos')
+        (chrom, pos) = tuple(breakpoint[side][i] for i in elems)
 
-            # ensure there is min_aligned on both sides of position
-            if pysam_read.get_overlap(max(0, pos - min_aligned), pos + min_aligned) < 2 * min_aligned:
-                return False
+        # check chromosome matching
+        # Note: this step is kind of slow
+        if pysam_read.reference_name != chrom:
+            return False
+
+        # ensure there is min_aligned on both sides of position
+        if pysam_read.get_overlap(max(0, pos - min_aligned), pos + min_aligned) < 2 * min_aligned:
+            return False
 
         return True
 
