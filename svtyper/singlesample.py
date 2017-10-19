@@ -89,7 +89,7 @@ def dump_library_metrics(lib_info_path, sample):
 def setup_src_vcf_file(fobj, invcf, rootdir):
     src_vcf = invcf
     if invcf == '<stdin>':
-        src_vcf = dump_piped_vcf_to_file(fobj, scratchdir)
+        src_vcf = dump_piped_vcf_to_file(fobj, rootdir)
     return src_vcf
 
 def dump_piped_vcf_to_file(stdin, basedir):
