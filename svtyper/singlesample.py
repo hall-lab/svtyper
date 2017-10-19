@@ -599,7 +599,7 @@ def sso_genotype(bam_string,
     if vcf_in is None:
         return
 
-    (invcf, outvcf) = (vcf_in.name, vcf_out.name)
+    (invcf, outvcf) = (os.path.abspath(vcf_in.name), os.path.abspath(vcf_out.name))
     ensure_valid_alignment_file(bam_string)
 
     sample = setup_sample(bam_string, lib_info_path, ref_fasta, num_samp, min_aligned)
