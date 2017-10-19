@@ -234,32 +234,34 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
 
     db_file = '/tmp/6212687.tmpdir/reads.json.db'
     logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
-    with anydbm.open(db_file, 'c') as db:
-        i = 0
-        for r in sorted_regions:
-            (sample_name, chrom, pos, left_pos, right_pos) = r
-            if i % 10000 == 0:
-                db_size_bytes = os.path.getsize(db_file)
-                db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-                logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
-            reads = collect_region_reads(
-                sample,
-                chrom,
-                left_pos,
-                right_pos,
-                max_reads,
-                min_aligned,
-                cache[r]
-            )
-            json_reads = json.dumps(
-                reads,
-                separators=(',', ':'),
-                default=lite_read_json_encoder
-            )
 
-            index = str(r)
-            db[index] = json_reads
-            i += 1
+    db = anydbm.open(db_file, 'c')
+    i = 0
+    for r in sorted_regions:
+        (sample_name, chrom, pos, left_pos, right_pos) = r
+        if i % 10000 == 0:
+            db_size_bytes = os.path.getsize(db_file)
+            db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
+            logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
+        reads = collect_region_reads(
+            sample,
+            chrom,
+            left_pos,
+            right_pos,
+            max_reads,
+            min_aligned,
+            cache[r]
+        )
+        json_reads = json.dumps(
+            reads,
+            separators=(',', ':'),
+            default=lite_read_json_encoder
+        )
+
+        index = str(r)
+        db[index] = json_reads
+        i += 1
+    db.close()
 
     return db_file
 
