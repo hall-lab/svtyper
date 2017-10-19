@@ -234,7 +234,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
 
     db_file = '/tmp/6212687.tmpdir/reads.json.db'
     logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
-    with anydbm.open(db_file, 'w') as db:
+    with anydbm.open(db_file, 'c') as db:
         i = 0
         for r in sorted_regions:
             (sample_name, chrom, pos, left_pos, right_pos) = r
