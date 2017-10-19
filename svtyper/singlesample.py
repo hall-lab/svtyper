@@ -619,10 +619,13 @@ def sso_genotype(bam_string,
         src_vcf = init_vcf(src_vcf_file, sample, scratchdir)
 
         # 1st pass through input vcf -- collect all the relevant reads
+        logit("Collecting breakpoints")
         breakpoints = collect_breakpoints(src_vcf)
+        logit("Storing breakpoints")
         breakpoints_db = store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned)
 
         # 2nd pass through input vcf -- perform actual genotyping
+        logit("Genotyping Input VCF")
         genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug)
 
     sample.close()
