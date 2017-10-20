@@ -165,6 +165,7 @@ def collect_region_reads(sample, chrom, left_pos, right_pos, max_reads, min_alig
         # read.query_sequence = "*"
         # read.query_qualities = "*"
         if max_reads is not None and i > max_reads:
+            sam_reads.close()
             return too_many
 
         lread = LiteRead(read, min_aligned, breakpoint)
