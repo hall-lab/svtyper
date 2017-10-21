@@ -209,6 +209,9 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
             db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
             logit("Reads Processed: {} (db size: {} GB)".format(i, db_size_gb))
     db.close()
+    db_size_bytes = os.path.getsize(reads_db_file)
+    db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
+    logit("Reads Processed: {} (db size: {} GB)".format(i, db_size_gb))
     logit("Kept {} reads out of {} ({:.4f} %)".format(noted_reads, total_reads, (noted_reads/total_reads) * 100.0))
 
     logit("Dumping {}".format(breakpoints_db_file))
