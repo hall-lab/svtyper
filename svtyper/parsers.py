@@ -156,6 +156,7 @@ class Vcf(object):
                 else: o2_is_reverse = True
 
                 breakpoints = {
+                    'id' : var.var_id,
                     'svtype' : 'BND',
                     'A' : {'chrom': chromA, 'pos' : posA, 'ci': ciA, 'is_reverse': o1_is_reverse},
                     'B' : {'chrom': chromB, 'pos' : posB, 'ci': ciB, 'is_reverse': o2_is_reverse},
@@ -195,12 +196,14 @@ class Vcf(object):
 
         if svtype != 'DEL':
             breakpoints = {
+                'id' : variant.var_id,
                 'svtype' : svtype,
                 'A' : {'chrom': chromA, 'pos' : posA, 'ci': ciA, 'is_reverse': o1_is_reverse},
                 'B' : {'chrom': chromB, 'pos' : posB, 'ci': ciB, 'is_reverse': o2_is_reverse},
             }
         else:
             breakpoints = {
+                'id' : variant.var_id,
                 'svtype' : svtype,
                 'var_length' : var_length,
                 'A' : {'chrom': chromA, 'pos' : posA, 'ci': ciA, 'is_reverse': o1_is_reverse},
@@ -720,7 +723,7 @@ class Sample(object):
 # read information from a CRAM/BAM/SAM fetch
 # ==================================================
 class LiteRead(object):
-    def __init__(self, pysam_read=None, min_aligned=None, breakpoint=None):
+    def __init__(self, pysam_read=None):
         if pysam_read is None:
             return
 
@@ -739,8 +742,8 @@ class LiteRead(object):
         self.cigar = pysam_read.cigartuples
         self.pos = pysam_read.pos
         self.object_id = pysam_read.__hash__()
+        self.ref_seq_cache = {}
 
-        self.is_ref_seq = self._calculate_is_ref_seq(pysam_read, min_aligned, breakpoint)
         self.tags = { tag[0] : tag[1] for tag in pysam_read.get_tags() }
 
     def __hash__(self):
@@ -752,11 +755,15 @@ class LiteRead(object):
         instance.__dict__.update(params['__LiteRead__'])
         return instance
 
-    def _calculate_is_ref_seq(self, pysam_read, min_aligned, breakpoint):
+    def is_ref_seq(self, variant_id):
+        return self.ref_seq_cache[variant_id]
+
+    def update_ref_seq_cache(self, pysam_read, min_aligned, breakpoint):
+        variant_id = breakpoint['id']
+        if variant_id in self.ref_seq_cache: return
         is_ref_seq_A = self._is_ref_seq_for_side('A', breakpoint, pysam_read, min_aligned)
         is_ref_seq_B = self._is_ref_seq_for_side('B', breakpoint, pysam_read, min_aligned)
-        verdict = is_ref_seq_A or is_ref_seq_B
-        return verdict
+        self.ref_seq_cache[variant_id] = is_ref_seq_A or is_ref_seq_B
 
     def _is_ref_seq_for_side(self, side, breakpoint, pysam_read, min_aligned):
         elems = ('chrom', 'pos')
@@ -862,10 +869,11 @@ class SamFragment(object):
     # sequence
     def is_ref_seq(self,
                    read,
+                   variant,
                    chrom, pos, ci,
                    min_aligned):
         if isinstance(read, LiteRead):
-            return read.is_ref_seq
+            return read.is_ref_seq(variant.var_id)
 
         # check chromosome matching
         # Note: this step is kind of slow

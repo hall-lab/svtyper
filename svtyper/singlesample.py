@@ -149,29 +149,15 @@ def get_breakpoint_regions(breakpoint, sample, z):
 
     return regions
 
-def collect_region_reads(sample, chrom, left_pos, right_pos, max_reads, min_aligned, breakpoint):
-    sam_reads = sample.bam.fetch(chrom, left_pos, right_pos)
-
-    too_many = { 'many' : True, 'reads' : [] }
-    lite_reads = { 'many' : False, 'reads' : [] }
-    for i, read in enumerate(sam_reads):
-        if read.is_unmapped or read.is_duplicate:
+def get_overlapping_regions(pysam_read, sorted_regions):
+    overlapping_regions = []
+    for r in sorted_regions:
+        (sample_name, chrom, pos, left_pos, right_pos) = r
+        if pysam_read.reference_name != chrom:
             continue
-
-        lib = sample.get_lib(read.get_tag('RG'))
-        if lib not in sample.active_libs:
-            continue
-
-        # read.query_sequence = "*"
-        # read.query_qualities = "*"
-        if max_reads is not None and i > max_reads:
-            sam_reads.close()
-            return too_many
-
-        lread = LiteRead(read, min_aligned, breakpoint)
-        lite_reads['reads'].append(lread)
-
-    return lite_reads
+        if pysam_read.get_overlap(left_pos, right_pos):
+            overlapping_regions.append(r)
+    return overlapping_regions
 
 def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     cache = {}
@@ -183,88 +169,57 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     logit("Sorting regions")
     sorted_regions = sorted(cache.keys(), key=sort_regions)
     total_regions = len(sorted_regions)
-    logit("Going to process {} regions".format(total_regions))
+    logit("Going to process for {} regions".format(total_regions))
 
-#    reads_db = {}
-#    i = 0
-#    for r in sorted_regions:
-#        (sample_name, chrom, pos, left_pos, right_pos) = r
-#        if i % 100000 == 0:
-#            logit("[{} | {}] Processing region: {}".format(i, total_regions, r))
-#        reads = collect_region_reads(
-#            sample,
-#            chrom,
-#            left_pos,
-#            right_pos,
-#            max_reads,
-#            min_aligned,
-#            cache[r]
-#        )
-#        reads_db[r] = reads
-#        i += 1
-#    return reads_db
-#
-#    db_file = 'reads.json.db.gz'
-#    logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
-#    with gzip.open(db_file, 'w') as db:
-#        i = 0
-#        for r in sorted_regions:
-#            (sample_name, chrom, pos, left_pos, right_pos) = r
-#            if i % 10000 == 0:
-#                db_size_bytes = os.path.getsize(db_file)
-#                db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-#                logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
-#            reads = collect_region_reads(
-#                sample,
-#                chrom,
-#                left_pos,
-#                right_pos,
-#                max_reads,
-#                min_aligned,
-#                cache[r]
-#            )
-#            json_reads = json.dumps(
-#                reads,
-#                separators=(',', ':'),
-#                default=lite_read_json_encoder
-#            )
-#
-#            index = json.dumps((sample.name, chrom, pos, left_pos, right_pos))
-#            print(index, json_reads, sep="\t", file=db)
-#            i += 1
-
-    db_file = '/tmp/6212687.tmpdir/reads.json.db'
-    logit("Beginning finding and storing reads from regions to {}".format(os.path.abspath(db_file)))
-
-    db = anydbm.open(db_file, 'c')
-    i = 0
-    for r in sorted_regions:
-        (sample_name, chrom, pos, left_pos, right_pos) = r
+    reads_db_file = 'reads.json.db'
+    breakpoints_db_file = 'sv-to-reads-map.db'
+    breakpoints_reads_cache = { b['id'] : set() for b in breakpoints }
+    db = anydbm.open(reads_db_file, 'c')
+    (total_reads, noted_reads) = (0, 0)
+    logit("Processing {}".format(sample.bam.filename))
+    for i, read in enumerate(sample.bam.fetch()):
+        if read.is_unmapped or read.is_duplicate:
+            continue
+        overlapping_regions = get_overlapping_regions(read, sorted_regions)
+        if overlapping_regions:
+            noted_reads += 1
+            index_string = "{}:{}:{}:{}:{}".format(
+                read.__hash__(),
+                read.query_name,
+                read.reference_name,
+                read.reference_start,
+                read.reference_end
+            )
+            index = str(index_string.__hash__())
+            lread = LiteRead(read)
+            for o in overlapping_regions:
+                variant_id = cache[o]['id']
+                lread.update_ref_seq_cache(read, min_aligned, cache[o])
+                breakpoints_reads_cache[variant_id].add(index)
+            json_read = json.dumps(lread, default=lite_read_json_encoder)
+            db[index] = json_read
+        total_reads += 1
         if i % 10000 == 0:
-            db_size_bytes = os.path.getsize(db_file)
+            db_size_bytes = os.path.getsize(reads_db_file)
             db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-            logit("[{} | {}] Processing region: {} (db size: {} GB)".format(i, total_regions, r, db_size_gb))
-        reads = collect_region_reads(
-            sample,
-            chrom,
-            left_pos,
-            right_pos,
-            max_reads,
-            min_aligned,
-            cache[r]
-        )
-        json_reads = json.dumps(
-            reads,
-            separators=(',', ':'),
-            default=lite_read_json_encoder
-        )
-
-        index = str(r)
-        db[index] = base64.b64encode(zlib.compress(json_reads))
-        i += 1
+            logit("Reads Processed: {} (db size: {} GB)".format(i, db_size_gb))
     db.close()
+    logit("Kept {} reads out of {} ({:.4f} %)".format(noted_reads, total_reads, (noted_reads/total_reads) * 100.0))
 
-    return db_file
+    logit("Dumping {}".format(breakpoints_db_file))
+    db = anydbm.open(breakpoints_db_file, 'c')
+    for k in breakpoints_reads_cache.keys():
+        if len(breakpoints_reads_cache[k]) > max_reads:
+            db[k] = json.dumps({ 'many': True, 'reads': []})
+        else:
+            data = { 'many' : False, 'reads': list(breakpoints_reads_cache[k]) }
+            db[k] = json.dumps(data)
+    db.close()
+    db_size_bytes = os.path.getsize(breakpoints_db_file)
+    db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
+    logit("breakpoints db size: {} (GB)".format(db_size_gb))
+
+    return reads_db_file, breakpoints_db_file
 
 def decode_region(region_json_string):
     region = tuple(json.loads(region_json_string))
@@ -284,28 +239,30 @@ def load_breakpoints_db(dbfile):
             store[region] = reads
     return store
 
-def retrieve_reads_from_db(db, region):
-    index = str(region)
+def retrieve_reads_from_db(reads_db, breakpoints_db, breakpoint):
+    index = breakpoint['id']
+    json_data = breakpoints_db[index]
+    data = json.loads(json_data)
+    lite_reads_json = [ reads_db[r] for r in data['reads'] ]
+    lite_reads = [ decode_reads(r) for r in lite_reads_json ]
+    lite_reads.sort(key=lambda r: (r.reference_name, r.reference_start, r.reference_end))
+    return (data, lite_reads)
+
     reads_json_compressed_base64 = db[index]
     reads = decode_reads(zlib.decompress(base64.b64decode(reads_json_compressed_base64)))
     return reads
 
-def gather_reads(breakpoint, sample, z, breakpoints_db):
+def gather_reads(breakpoint, sample, z, reads_db, breakpoints_db):
     fragment_dict = {}
-    regions = get_breakpoint_regions(breakpoint, sample, z)
-    for side in regions:
-        #read_data = breakpoints_db[side]
-        read_data = retrieve_reads_from_db(db, side)
-        if read_data['many'] is True:
-            return ({}, read_data['many'])
-        for read in read_data['reads']:
-            if read.query_name in fragment_dict:
-                fragment_dict[read.query_name].add_read(read)
-            else:
-                lib = sample.get_lib(read.get_tag('RG'))
-                fragment_dict[read.query_name] = SamFragment(read, lib)
-    
-    return (fragment_dict, False)
+    (read_metadata, reads) = retrieve_reads_from_db(reads_db, breakpoints_db, breakpoint)
+
+    for read in reads:
+        if read.query_name in fragment_dict:
+            fragment_dict[read.query_name].add_read(read)
+        else:
+            lib = sample.get_lib(read.get_tag('RG'))
+            fragment_dict[read.query_name] = SamFragment(read, lib)
+    return (fragment_dict, read_metadata['many'])
 
 def make_empty_genotype(variant, sample):
     variant.genotype(sample.name).set_format('GT', './.')
@@ -336,7 +293,7 @@ def check_split_read_evidence(sam_fragment, breakpoint, split_slop):
 
     # get reference sequences
     for read in sam_fragment.primary_reads:
-        if read.is_ref_seq:
+        if read.is_ref_seq(breakpoint['id']):
             p_reference = prob_mapq(read)
             ref_seq += p_reference
 
@@ -555,8 +512,8 @@ def bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
     
     return variant
 
-def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, breakpt_db, debug):
-    (read_batches, many) = gather_reads(breakpoint, sample, z, breakpt_db)
+def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, reads_db, breakpt_db, debug):
+    (read_batches, many) = gather_reads(breakpoint, sample, z, reads_db, breakpt_db)
 
     # if there are too many reads around the breakpoint
     if many is True:
@@ -583,11 +540,10 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     variant = bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
     return variant
 
-def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug):
+def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, reads_db_file, breakpoints_db_file, debug):
     # initializations
-    db = anydbm.open(breakpoints_db, 'r')
-#    db = load_breakpoints_db(breakpoints_db) # json file-based approach
-#    db = breakpoints_db # in-memory approach
+    breakpoints_db = anydbm.open(breakpoints_db_file, 'r')
+    reads_db = anydbm.open(reads_db_file, 'r')
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
 
@@ -640,7 +596,8 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
                 split_weight,
                 disc_weight,
                 breakpoints,
-                db,
+                reads_db,
+                breakpoints_db,
                 debug
         )
         variant.write(out_vcf)
@@ -652,7 +609,8 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
             variant2.genotype = variant.genotype
             variant2.write(out_vcf)
 
-    db.close()
+    breakpoints_db.close()
+    reads_db.close()
 
 def sso_genotype(bam_string,
                  vcf_in,
@@ -694,11 +652,11 @@ def sso_genotype(bam_string,
         logit("Collecting breakpoints")
         breakpoints = collect_breakpoints(src_vcf)
         logit("Storing breakpoints")
-        breakpoints_db = store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned)
+        (reads_db, breakpoints_db) = store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned)
 
         # 2nd pass through input vcf -- perform actual genotyping
         logit("Genotyping Input VCF")
-        genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, breakpoints_db, debug)
+        genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, reads_db, breakpoints_db, debug)
 
     sample.close()
 
