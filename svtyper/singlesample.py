@@ -149,9 +149,10 @@ def get_breakpoint_regions(breakpoint, sample, z):
 
     return regions
 
-def get_overlapping_regions(pysam_read, sorted_regions):
+def get_overlapping_regions(pysam_read, chrom_grouped_regions):
     overlapping_regions = []
-    for r in sorted_regions:
+    potential_regions = chrom_grouped_regions[pysam_read.reference_name]
+    for r in potential_regions:
         (sample_name, chrom, pos, left_pos, right_pos) = r
         if pysam_read.reference_name != chrom:
             continue
@@ -168,6 +169,10 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
         cache[regionB] = b
     logit("Sorting regions")
     sorted_regions = sorted(cache.keys(), key=sort_regions)
+    chrom_grouped_regions = { r[1] : [] for r in sorted_regions }
+    for r in sorted_regions:
+        chrom = r[1]
+        chrom_grouped_regions[chrom].append(r)
     total_regions = len(sorted_regions)
     logit("Going to process for {} regions".format(total_regions))
 
@@ -180,7 +185,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     for i, read in enumerate(sample.bam.fetch()):
         if read.is_unmapped or read.is_duplicate:
             continue
-        overlapping_regions = get_overlapping_regions(read, sorted_regions)
+        overlapping_regions = get_overlapping_regions(read, chrom_grouped_regions)
         if overlapping_regions:
             noted_reads += 1
             index_string = "{}:{}:{}:{}:{}".format(
