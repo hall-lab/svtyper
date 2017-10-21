@@ -204,7 +204,7 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
             json_read = json.dumps(lread, default=lite_read_json_encoder)
             db[index] = json_read
         total_reads += 1
-        if i % 10000 == 0:
+        if i % 100000 == 0:
             db_size_bytes = os.path.getsize(reads_db_file)
             db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
             logit("Reads Processed: {} (db size: {} GB)".format(i, db_size_gb))
