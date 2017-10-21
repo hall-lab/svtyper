@@ -216,10 +216,13 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
 
     logit("Dumping {}".format(breakpoints_db_file))
     db = anydbm.open(breakpoints_db_file, 'c')
-    for k in breakpoints_reads_cache.keys():
+    for i, k in enumerate(sorted(breakpoints_reads_cache.keys())):
+        num_reads = len(breakpoints_reads_cache)
         if len(breakpoints_reads_cache[k]) > max_reads:
+            logit("\t [{}]: Variant {} -- has {} reads associated with it in cram (max_reads overflow)".format(i, num_reads))
             db[k] = json.dumps({ 'many': True, 'reads': []})
         else:
+            logit("\tVariant {} -- has {} reads associated with it in cram".format(num_reads))
             data = { 'many' : False, 'reads': list(breakpoints_reads_cache[k]) }
             db[k] = json.dumps(data)
     db.close()
