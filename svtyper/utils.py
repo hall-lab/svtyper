@@ -58,6 +58,11 @@ def sort_regions(region):
     key = '--'.join([str_region[i] for i in (0, 1, 3, 4)])
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', key)]
 
+def sort_reads(read):
+    attrs = ('reference_name', 'reference_start', 'reference_end', 'query_name')
+    key = '--'.join([str(getattr(read, i)) for i in attrs])
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', key)]
+
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
 # ==================================================

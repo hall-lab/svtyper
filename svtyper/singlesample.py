@@ -3,7 +3,7 @@ import json, sys, os, math, argparse, gzip, anydbm, zlib, base64
 
 import svtyper.version
 from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
-from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples, sort_regions
+from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples, sort_regions, sort_reads
 from svtyper.statistics import bayes_gt
 
 import pysam
@@ -245,7 +245,7 @@ def retrieve_reads_from_db(reads_db, breakpoints_db, breakpoint):
     data = json.loads(json_data)
     lite_reads_json = [ reads_db[r] for r in data['reads'] ]
     lite_reads = [ decode_reads(r) for r in lite_reads_json ]
-    lite_reads.sort(key=lambda r: (r.reference_name, r.reference_start, r.reference_end))
+    lite_reads.sort(key=sort_reads)
     return (data, lite_reads)
 
     reads_json_compressed_base64 = db[index]
