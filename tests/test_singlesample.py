@@ -30,7 +30,7 @@ class TestIntegration(unittest.TestCase):
                            debug=False,
                            ref_fasta=None,
                            sum_quals=False,
-                           max_reads=None)
+                           max_reads=1000)
 
         fail_msg = "did not file output vcf '{}' after running sv_genotype".format(out_vcf)
         self.assertTrue(os.path.exists(out_vcf), fail_msg)
