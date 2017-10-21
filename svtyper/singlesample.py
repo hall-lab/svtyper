@@ -254,7 +254,7 @@ def retrieve_reads_from_db(reads_db, breakpoints_db, breakpoint):
     index = breakpoint['id']
     json_data = breakpoints_db[index]
     data = json.loads(json_data)
-    lite_reads_json = [ reads_db[r] for r in data['reads'] ]
+    lite_reads_json = [ reads_db[r.encode('ascii')] for r in data['reads'] ]
     lite_reads = [ decode_reads(r) for r in lite_reads_json ]
     lite_reads.sort(key=sort_reads)
     return (data, lite_reads)
