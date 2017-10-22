@@ -155,6 +155,17 @@ def get_overlapping_regions(pysam_read, chrom_interval_trees):
     overlapping = tree.search(pysam_read.reference_start, pysam_read.reference_end)
     return overlapping
 
+def dump_reads(reads_db_file, lite_read_cache):
+    db = anydbm.open(reads_db_file, 'c')
+    for k in lite_read_cache:
+        lread = lite_read_cache[k]
+        if lread is None: continue
+        json_read = json.dumps(lread, default=lite_read_json_encoder)
+        db[k] = json_read
+        lite_read_cache[k] = None
+    db.close()
+    return lite_read_cache
+
 def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     cache = {}
     logit("Collecting regions")
@@ -218,16 +229,12 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
                 lite_read_cache[index] = lread
                 chrom_reads += 1
                 noted_reads += 1
+            if i % 10000 == 0:
+                logit("Processed 10000 reads. Dumping reads to {}".format(reads_db_file))
+                lite_read_cache = dump_reads(reads_db_file, lite_read_cache)
         logit("Chrom: {} finished. Dumping reads to: {}".format(chrom, reads_db_file))
         logit("{} reads collected for SV analysis (total collected: {})".format(chrom_reads, noted_reads))
-        db = anydbm.open(reads_db_file, 'c')
-        for k in lite_read_cache:
-            lread = lite_read_cache[k]
-            if lread is None: continue
-            json_read = json.dumps(lread, default=lite_read_json_encoder)
-            db[k] = json_read
-            lite_read_cache[k] = None
-        db.close()
+        lite_read_cache = dump_reads(reads_db_file, lite_read_cache)
 
     logit("Dumping {}".format(breakpoints_db_file))
     db = anydbm.open(breakpoints_db_file, 'c')
