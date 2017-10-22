@@ -1,10 +1,11 @@
 from __future__ import print_function
-import json, sys, os, math, argparse, gzip, anydbm, zlib, base64
+import json, sys, os, math, argparse, gzip, anydbm, zlib, base64, time
 
 import svtyper.version
 from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
-from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples, sort_regions, sort_reads
+from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples, sort_regions, sort_reads, sort_chroms
 from svtyper.statistics import bayes_gt
+from svtyper.intervaltree import IntervalTree
 
 import pysam
 
@@ -149,16 +150,10 @@ def get_breakpoint_regions(breakpoint, sample, z):
 
     return regions
 
-def get_overlapping_regions(pysam_read, chrom_grouped_regions):
-    overlapping_regions = []
-    potential_regions = chrom_grouped_regions[pysam_read.reference_name]
-    for r in potential_regions:
-        (sample_name, chrom, pos, left_pos, right_pos) = r
-        if pysam_read.reference_name != chrom:
-            continue
-        if pysam_read.get_overlap(left_pos, right_pos):
-            overlapping_regions.append(r)
-    return overlapping_regions
+def get_overlapping_regions(pysam_read, chrom_interval_trees):
+    tree = chrom_interval_trees[pysam_read.reference_name]
+    overlapping = tree.search(pysam_read.reference_start, pysam_read.reference_end)
+    return overlapping
 
 def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     cache = {}
@@ -173,58 +168,68 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     for r in sorted_regions:
         chrom = r[1]
         chrom_grouped_regions[chrom].append(r)
+    chroms = sorted(chrom_grouped_regions.keys(), key=sort_chroms)
     total_regions = len(sorted_regions)
     logit("Going to process for {} regions".format(total_regions))
 
+    chrom_interval_trees = { chrom : IntervalTree(chrom_grouped_regions[chrom])
+                             for chrom in chrom_grouped_regions }
+
     reads_db_file = 'reads.json.db'
     breakpoints_db_file = 'sv-to-reads-map.db'
-    breakpoints_reads_cache = { b['id'] : set() for b in breakpoints }
-    db = anydbm.open(reads_db_file, 'c')
-    (total_reads, noted_reads) = (0, 0)
-    logit("Processing {}".format(sample.bam.filename))
-    for i, read in enumerate(sample.bam.fetch()):
-        if read.is_unmapped or read.is_duplicate:
-            continue
-        overlapping_regions = get_overlapping_regions(read, chrom_grouped_regions)
-        if overlapping_regions:
-            noted_reads += 1
-            index_string = "{}:{}:{}:{}:{}".format(
-                read.__hash__(),
-                read.query_name,
-                read.reference_name,
-                read.reference_start,
-                read.reference_end
-            )
-            index = str(index_string.__hash__())
-            lread = LiteRead(read)
-            for o in overlapping_regions:
-                variant_id = cache[o]['id']
-                lread.update_ref_seq_cache(read, min_aligned, cache[o])
-                breakpoints_reads_cache[variant_id].add(index)
+    breakpoints_reads_cache = { b['id'] : { 'many' : False, 'reads' : set() } for b in breakpoints }
+    lite_read_cache = {}
+
+    for chrom in chroms:
+        regions = chrom_grouped_regions[chrom]
+        logit("Processing {} regions in chrom {}".format(len(regions), chrom))
+        for i, r in enumerate(regions):
+            breakpoint = cache[r]
+            variant_id = breakpoint['id']
+            if breakpoints_reads_cache[variant_id]['many'] is True: continue
+            (sample_name, chrm, pos, left_pos, right_pos) = r
+            reads_count = sample.bam.count(chrom, start=left_pos, stop=right_pos, read_callback='all')
+            logit("\t [{}] {} has {} reads".format(i, r, reads_count))
+            if reads_count > max_reads:
+                breakpoints_reads_cache[variant_id]['many'] = True
+                continue
+            for read in sample.bam.fetch(chrom, left_pos, right_pos):
+                if read.is_unmapped or read.is_duplicate: continue
+                lib = sample.get_lib(read.get_tag('RG'))
+                if lib not in sample.active_libs: continue
+                index_string = "{}:{}:{}:{}:{}".format(
+                    read.__hash__(),
+                    read.query_name,
+                    read.reference_name,
+                    read.reference_start,
+                    read.reference_end
+                )
+                index = str(index_string.__hash__())
+                breakpoints_reads_cache[variant_id]['reads'].add(index)
+                if index in lite_read_cache: continue
+                lread = LiteRead(read)
+                overlapping_regions = get_overlapping_regions(read, chrom_interval_trees)
+                for o in overlapping_regions:
+                    variant_id = cache[o]['id']
+                    lread.update_ref_seq_cache(read, min_aligned, cache[o])
+                lite_read_cache[index] = lread
+        logit("Chrom: {} finished. Dumping reads to: {}".format(chrom, reads_db_file))
+        db = anydbm.open(reads_db_file, 'c')
+        for k in lite_read_cache:
+            lread = lite_read_cache[k]
+            if lread is None: continue
             json_read = json.dumps(lread, default=lite_read_json_encoder)
-            db[index] = json_read
-        total_reads += 1
-        if i % 100000 == 0:
-            db_size_bytes = os.path.getsize(reads_db_file)
-            db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-            logit("Reads Processed: {} (db size: {} GB)".format(i, db_size_gb))
-    db.close()
-    db_size_bytes = os.path.getsize(reads_db_file)
-    db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-    logit("Reads Processed: {} (db size: {} GB)".format(i, db_size_gb))
-    logit("Kept {} reads out of {} ({:.4f} %)".format(noted_reads, total_reads, (noted_reads/total_reads) * 100.0))
+            db[k] = json_read
+            lite_read_cache[k] = None
+        db.close()
 
     logit("Dumping {}".format(breakpoints_db_file))
     db = anydbm.open(breakpoints_db_file, 'c')
     for i, k in enumerate(sorted(breakpoints_reads_cache.keys())):
         num_reads = len(breakpoints_reads_cache)
-        if len(breakpoints_reads_cache[k]) > max_reads:
-            logit("\t [{}]: Variant {} -- has {} reads associated with it in cram (max_reads overflow)".format(i, k, num_reads))
-            db[k] = json.dumps({ 'many': True, 'reads': []})
-        else:
-            logit("\t[{}]: Variant {} -- has {} reads associated with it in cram".format(i, k, num_reads))
-            data = { 'many' : False, 'reads': list(breakpoints_reads_cache[k]) }
-            db[k] = json.dumps(data)
+        logit("\t[{}]: Variant {} -- has {} reads associated with it in cram".format(i, k, num_reads))
+        data = { 'many' : breakpoints_reads_cache[k]['many'], 'reads': list(breakpoints_reads_cache[k]['reads']) }
+        db[k] = json.dumps(data)
     db.close()
     db_size_bytes = os.path.getsize(breakpoints_db_file)
     db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0

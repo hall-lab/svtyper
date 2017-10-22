@@ -63,6 +63,9 @@ def sort_reads(read):
     key = '--'.join([str(getattr(read, i)) for i in attrs])
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', key)]
 
+def sort_chroms(chrom):
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', chrom)]
+
 # ==================================================
 # Miscellaneous methods for manipulating SAM alignments
 # ==================================================
