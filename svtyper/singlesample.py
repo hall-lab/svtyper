@@ -164,6 +164,9 @@ def dump_reads(reads_db_file, lite_read_cache):
         db[k] = json_read
         lite_read_cache[k] = None
     db.close()
+    db_size_bytes = os.path.getsize(reads_db_file)
+    db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
+    logit("reads db size: {} (GB)".format(db_size_gb))
     return lite_read_cache
 
 def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
