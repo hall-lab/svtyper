@@ -180,7 +180,9 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
     breakpoints_reads_cache = { b['id'] : { 'many' : False, 'reads' : set() } for b in breakpoints }
     lite_read_cache = {}
 
+    noted_reads = 0
     for chrom in chroms:
+        chrom_reads = 0
         regions = chrom_grouped_regions[chrom]
         logit("Processing {} regions in chrom {}".format(len(regions), chrom))
         for i, r in enumerate(regions):
@@ -189,8 +191,9 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
             if breakpoints_reads_cache[variant_id]['many'] is True: continue
             (sample_name, chrm, pos, left_pos, right_pos) = r
             reads_count = sample.bam.count(chrom, start=left_pos, stop=right_pos, read_callback='all')
-            logit("\t [{}] {} has {} reads".format(i, r, reads_count))
+#            logit("\t [{}] {} has {} reads".format(i, r, reads_count))
             if reads_count > max_reads:
+                logit("\t [{}] {} has {} reads".format(i, r, reads_count))
                 breakpoints_reads_cache[variant_id]['many'] = True
                 continue
             for read in sample.bam.fetch(chrom, left_pos, right_pos):
@@ -213,7 +216,10 @@ def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
                     variant_id = cache[o]['id']
                     lread.update_ref_seq_cache(read, min_aligned, cache[o])
                 lite_read_cache[index] = lread
+                chrom_reads += 1
+                noted_reads += 1
         logit("Chrom: {} finished. Dumping reads to: {}".format(chrom, reads_db_file))
+        logit("{} reads collected for SV analysis (total collected: {})".format(chrom_reads, noted_reads))
         db = anydbm.open(reads_db_file, 'c')
         for k in lite_read_cache:
             lread = lite_read_cache[k]
