@@ -170,6 +170,9 @@ def gather_reads(breakpoint, sample, z, max_reads):
     (over_threshold, reads) = retrieve_reads_from_db(breakpoint, sample, z, max_reads)
 
     for read in reads:
+        if read.is_unmapped or read.is_duplicate: continue
+        lib = sample.get_lib(read.get_tag('RG'))
+        if lib not in sample.active_libs: continue
         if read.query_name in fragment_dict:
             fragment_dict[read.query_name].add_read(read)
         else:
