@@ -1,11 +1,11 @@
 from __future__ import print_function
-import json, sys, os, math, argparse, gzip, anydbm, zlib, base64, time
+import json, sys, os, math, argparse
+from itertools import chain
 
 import svtyper.version
-from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment, lite_read_json_decoder, lite_read_json_encoder
-from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples, sort_regions, sort_reads, sort_chroms
+from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment
+from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples
 from svtyper.statistics import bayes_gt
-from svtyper.intervaltree import IntervalTree
 
 import pysam
 
@@ -119,18 +119,6 @@ def init_vcf(vcffile, sample, scratchdir):
     v.add_sample(sample.name)
     return v
 
-def collect_breakpoints(vcf):
-    breakpoints = []
-    for vline in vcf_variants(vcf.filename):
-        v = vline.rstrip().split('\t')
-        variant = Variant(v, vcf)
-        if not variant.is_svtype(): continue
-        if not variant.is_valid_svtype(): continue
-        brkpts = vcf.get_variant_breakpoints(variant)
-        if brkpts is None: continue
-        breakpoints.append(brkpts)
-    return breakpoints
-
 def get_breakpoint_regions(breakpoint, sample, z):
     # the distance to the left and right of the breakpoint to scan
     # (max of mean + z standard devs over all of a sample's libraries)
@@ -150,143 +138,36 @@ def get_breakpoint_regions(breakpoint, sample, z):
 
     return regions
 
-def get_overlapping_regions(pysam_read, chrom_interval_trees):
-    tree = chrom_interval_trees[pysam_read.reference_name]
-    overlapping = tree.search(pysam_read.reference_start, pysam_read.reference_end)
-    return overlapping
+def count_reads_in_region(region, sample):
+    (sample_name, chrom, pos, left_pos, right_pos) = region
+    count = sample.bam.count(chrom, start=left_pos, stop=right_pos, read_callback='all')
+    return count
 
-def dump_reads(reads_db_file, lite_read_cache):
-    db = anydbm.open(reads_db_file, 'c')
-    for k in lite_read_cache:
-        lread = lite_read_cache[k]
-        if lread is None: continue
-        json_read = json.dumps(lread, default=lite_read_json_encoder)
-        db[k] = json_read
-        lite_read_cache[k] = None
-    db.close()
-    db_size_bytes = os.path.getsize(reads_db_file)
-    db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-    logit("reads db size: {} (GB)".format(db_size_gb))
-    return lite_read_cache
+def get_reads_iterator(region, sample):
+    (sample_name, chrom, pos, left_pos, right_pos) = region
+    iterator = sample.bam.fetch(chrom, left_pos, right_pos)
+    return iterator
 
-def store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned):
-    cache = {}
-    logit("Collecting regions")
-    for b in breakpoints:
-        (regionA, regionB) = get_breakpoint_regions(b, sample, z)
-        cache[regionA] = b
-        cache[regionB] = b
-    logit("Sorting regions")
-    sorted_regions = sorted(cache.keys(), key=sort_regions)
-    chrom_grouped_regions = { r[1] : [] for r in sorted_regions }
-    for r in sorted_regions:
-        chrom = r[1]
-        chrom_grouped_regions[chrom].append(r)
-    chroms = sorted(chrom_grouped_regions.keys(), key=sort_chroms)
-    total_regions = len(sorted_regions)
-    logit("Going to process for {} regions".format(total_regions))
+def retrieve_reads_from_db(breakpoint, sample, z, max_reads):
+    (over_threshold, reads) = (False, [])
+    (regionA, regionB) = get_breakpoint_regions(breakpoint, sample, z)
+    (countA, countB) = ( count_reads_in_region(regionA, sample), count_reads_in_region(regionB, sample) )
+    if countA > max_reads or countB > max_reads:
+        msg = ("SKIPPING -- Variant '{}' has too many reads\n"
+                "\t\t A: {} : {}\n"
+                "\t\t B: {} : {}").format(breakpoint['id'], regionA, countA, regionB, countB)
+        logit(msg)
+        return (overthreshold, reads)
 
-    chrom_interval_trees = { chrom : IntervalTree(chrom_grouped_regions[chrom])
-                             for chrom in chrom_grouped_regions }
+    reads_generator = chain(
+        get_reads_iterator(regionA, sample),
+        get_reads_iterator(regionB, sample)
+    )
+    return (over_threshold, reads_generator)
 
-    reads_db_file = 'reads.json.db'
-    breakpoints_db_file = 'sv-to-reads-map.db'
-    breakpoints_reads_cache = { b['id'] : { 'many' : False, 'reads' : set() } for b in breakpoints }
-    lite_read_cache = {}
-
-    noted_reads = 0
-    for chrom in chroms:
-        chrom_reads = 0
-        regions = chrom_grouped_regions[chrom]
-        logit("Processing {} regions in chrom {}".format(len(regions), chrom))
-        for i, r in enumerate(regions):
-            breakpoint = cache[r]
-            variant_id = breakpoint['id']
-            if breakpoints_reads_cache[variant_id]['many'] is True: continue
-            (sample_name, chrm, pos, left_pos, right_pos) = r
-            reads_count = sample.bam.count(chrom, start=left_pos, stop=right_pos, read_callback='all')
-#            logit("\t [{}] {} has {} reads".format(i, r, reads_count))
-            if reads_count > max_reads:
-                logit("\t [{}] {} has {} reads".format(i, r, reads_count))
-                breakpoints_reads_cache[variant_id]['many'] = True
-                continue
-            for read in sample.bam.fetch(chrom, left_pos, right_pos):
-                if read.is_unmapped or read.is_duplicate: continue
-                lib = sample.get_lib(read.get_tag('RG'))
-                if lib not in sample.active_libs: continue
-                index_string = "{}:{}:{}:{}:{}".format(
-                    read.__hash__(),
-                    read.query_name,
-                    read.reference_name,
-                    read.reference_start,
-                    read.reference_end
-                )
-                index = str(index_string.__hash__())
-                breakpoints_reads_cache[variant_id]['reads'].add(index)
-                if index in lite_read_cache: continue
-                lread = LiteRead(read)
-                overlapping_regions = get_overlapping_regions(read, chrom_interval_trees)
-                for o in overlapping_regions:
-                    variant_id = cache[o]['id']
-                    lread.update_ref_seq_cache(read, min_aligned, cache[o])
-                lite_read_cache[index] = lread
-                chrom_reads += 1
-                noted_reads += 1
-            if i % 10000 == 0:
-                logit("Processed 10000 reads. Dumping reads to {}".format(reads_db_file))
-                lite_read_cache = dump_reads(reads_db_file, lite_read_cache)
-        logit("Chrom: {} finished. Dumping reads to: {}".format(chrom, reads_db_file))
-        logit("{} reads collected for SV analysis (total collected: {})".format(chrom_reads, noted_reads))
-        lite_read_cache = dump_reads(reads_db_file, lite_read_cache)
-
-    logit("Dumping {}".format(breakpoints_db_file))
-    db = anydbm.open(breakpoints_db_file, 'c')
-    for i, k in enumerate(sorted(breakpoints_reads_cache.keys())):
-        num_reads = len(breakpoints_reads_cache)
-        logit("\t[{}]: Variant {} -- has {} reads associated with it in cram".format(i, k, num_reads))
-        data = { 'many' : breakpoints_reads_cache[k]['many'], 'reads': list(breakpoints_reads_cache[k]['reads']) }
-        db[k] = json.dumps(data)
-    db.close()
-    db_size_bytes = os.path.getsize(breakpoints_db_file)
-    db_size_gb = db_size_bytes / 1024.0 / 1024.0 / 1024.0
-    logit("breakpoints db size: {} (GB)".format(db_size_gb))
-
-    return reads_db_file, breakpoints_db_file
-
-def decode_region(region_json_string):
-    region = tuple(json.loads(region_json_string))
-    return region
-
-def decode_reads(reads_json_string):
-    reads = json.loads(reads_json_string, object_hook=lite_read_json_decoder)
-    return reads
-
-def load_breakpoints_db(dbfile):
-    store = {}
-    with gzip.open(dbfile, 'r') as f:
-        for line in f:
-            (region_json, reads_json) = line.rstrip().split('\t')
-            region = decode_region(region_json)
-            reads = decode_reads(reads_json)
-            store[region] = reads
-    return store
-
-def retrieve_reads_from_db(reads_db, breakpoints_db, breakpoint):
-    index = breakpoint['id']
-    json_data = breakpoints_db[index]
-    data = json.loads(json_data)
-    lite_reads_json = [ reads_db[r.encode('ascii')] for r in data['reads'] ]
-    lite_reads = [ decode_reads(r) for r in lite_reads_json ]
-    lite_reads.sort(key=sort_reads)
-    return (data, lite_reads)
-
-    reads_json_compressed_base64 = db[index]
-    reads = decode_reads(zlib.decompress(base64.b64decode(reads_json_compressed_base64)))
-    return reads
-
-def gather_reads(breakpoint, sample, z, reads_db, breakpoints_db):
+def gather_reads(breakpoint, sample, z, max_reads):
     fragment_dict = {}
-    (read_metadata, reads) = retrieve_reads_from_db(reads_db, breakpoints_db, breakpoint)
+    (over_threshold, reads) = retrieve_reads_from_db(breakpoint, sample, z, max_reads)
 
     for read in reads:
         if read.query_name in fragment_dict:
@@ -294,7 +175,7 @@ def gather_reads(breakpoint, sample, z, reads_db, breakpoints_db):
         else:
             lib = sample.get_lib(read.get_tag('RG'))
             fragment_dict[read.query_name] = SamFragment(read, lib)
-    return (fragment_dict, read_metadata['many'])
+    return (fragment_dict, over_threshold)
 
 def make_empty_genotype(variant, sample):
     variant.genotype(sample.name).set_format('GT', './.')
@@ -320,21 +201,24 @@ def make_detailed_empty_genotype(variant, sample):
     variant.genotype(sample.name).set_format('AB', '.')
     return variant
 
-def check_split_read_evidence(sam_fragment, breakpoint, split_slop):
+def check_split_read_evidence(sam_fragment, breakpoint, split_slop, min_aligned):
     (ref_seq, alt_seq, alt_clip) = (0, 0, 0)
+
+    elems = ('chrom', 'pos', 'ci', 'is_reverse')
+    (chromA, posA, ciA, o1_is_reverse) = tuple(breakpoint['A'][i] for i in elems)
+    (chromB, posB, ciB, o2_is_reverse) = tuple(breakpoint['B'][i] for i in elems)
 
     # get reference sequences
     for read in sam_fragment.primary_reads:
-        if read.is_ref_seq(breakpoint['id']):
+        is_ref_seq_A = sam_fragment.is_ref_seq(read, None, chromA, posA, ciA, min_aligned)
+        is_ref_seq_B = sam_fragment.is_ref_seq(read, None, chromB, posB, ciB, min_aligned)
+        if (is_ref_seq_A or is_ref_seq_B):
             p_reference = prob_mapq(read)
             ref_seq += p_reference
 
     # get non-reference split-read support
     for split in sam_fragment.split_reads:
 
-        elems = ('chrom', 'pos', 'ci', 'is_reverse')
-        (chromA, posA, ciA, o1_is_reverse) = tuple(breakpoint['A'][i] for i in elems)
-        (chromB, posB, ciB, o2_is_reverse) = tuple(breakpoint['B'][i] for i in elems)
         svtype = breakpoint['svtype']
         split_lr = split.is_split_straddle(chromA, posA, ciA,
                                            chromB, posB, ciB,
@@ -439,7 +323,7 @@ def tally_variant_read_fragments(variant, sample, split_slop, min_aligned, break
         fragment = sam_fragments[query_name]
 
         (ref_seq_calc, alt_seq_calc, alt_clip_calc) = \
-                check_split_read_evidence(fragment, breakpoint, split_slop)
+                check_split_read_evidence(fragment, breakpoint, split_slop, min_aligned)
 
         ref_seq += ref_seq_calc
         alt_seq += alt_seq_calc
@@ -544,8 +428,8 @@ def bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
     
     return variant
 
-def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, reads_db, breakpt_db, debug):
-    (read_batches, many) = gather_reads(breakpoint, sample, z, reads_db, breakpt_db)
+def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
+    (read_batches, many) = gather_reads(breakpoint, sample, z, max_reads)
 
     # if there are too many reads around the breakpoint
     if many is True:
@@ -572,10 +456,8 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     variant = bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
     return variant
 
-def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, reads_db_file, breakpoints_db_file, debug):
+def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug):
     # initializations
-    breakpoints_db = anydbm.open(breakpoints_db_file, 'r')
-    reads_db = anydbm.open(reads_db_file, 'r')
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
 
@@ -628,8 +510,7 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
                 split_weight,
                 disc_weight,
                 breakpoints,
-                reads_db,
-                breakpoints_db,
+                max_reads,
                 debug
         )
         variant.write(out_vcf)
@@ -640,9 +521,6 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
             variant2.active_formats = variant.active_formats
             variant2.genotype = variant.genotype
             variant2.write(out_vcf)
-
-    breakpoints_db.close()
-    reads_db.close()
 
 def sso_genotype(bam_string,
                  vcf_in,
@@ -680,15 +558,9 @@ def sso_genotype(bam_string,
         # create the vcf object
         src_vcf = init_vcf(src_vcf_file, sample, scratchdir)
 
-        # 1st pass through input vcf -- collect all the relevant reads
-        logit("Collecting breakpoints")
-        breakpoints = collect_breakpoints(src_vcf)
-        logit("Storing breakpoints")
-        (reads_db, breakpoints_db) = store_breakpoint_reads(breakpoints, sample, z, max_reads, min_aligned)
-
-        # 2nd pass through input vcf -- perform actual genotyping
+        # pass through input vcf -- perform actual genotyping
         logit("Genotyping Input VCF")
-        genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, reads_db, breakpoints_db, debug)
+        genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug)
 
     sample.close()
 
