@@ -460,10 +460,13 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
     # initializations
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
+    total_variants = len(list(vcf_variants(src_vcf.filename)))
 
-    for vline in vcf_variants(src_vcf.filename):
+    for i, vline in enumerate(vcf_variants(src_vcf.filename)):
         v = vline.rstrip().split('\t')
         variant = Variant(v, src_vcf)
+        if i % 1000 == 0:
+            logit("[ {} | {} ] Processing variant {}".format(i, total_variants, variant.var_id))
         if not sum_quals:
             variant.qual = 0
 
