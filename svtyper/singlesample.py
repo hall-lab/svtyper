@@ -313,7 +313,7 @@ def gather_paired_end_evidence(fragment, breakpoint, min_aligned):
 
     return (ref_span, alt_span, ref_ciA, ref_ciB)
 
-def tally_variant_read_fragments(variant, sample, split_slop, min_aligned, breakpoint, sam_fragments, debug):
+def tally_variant_read_fragments(sample, split_slop, min_aligned, breakpoint, sam_fragments, debug):
     # initialize counts to zero
     ref_span, alt_span = 0, 0
     ref_seq, alt_seq = 0, 0
@@ -357,7 +357,7 @@ def tally_variant_read_fragments(variant, sample, split_slop, min_aligned, break
     if debug:
         items = ('ref_span', 'alt_span', 'ref_seq', 'alt_seq', 'alt_clip')
         cmsg = "\n".join(['{}: {}'.format(i, counts[i]) for i in items])
-        logit("{} -- read fragment tally counts:\n{}".format(variant.var_id, cmsg))
+        logit("{} -- read fragment tally counts:\n{}".format(breakpoint['id'], cmsg))
 
     return counts
 
@@ -443,7 +443,6 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
         return make_detailed_empty_genotype(variant, sample)
 
     counts = tally_variant_read_fragments(
-        variant,
         sample,
         split_slop,
         min_aligned,
