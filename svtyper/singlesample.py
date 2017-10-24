@@ -157,7 +157,7 @@ def retrieve_reads_from_db(breakpoint, sample, z, max_reads):
                 "\t\t A: {} : {}\n"
                 "\t\t B: {} : {}").format(breakpoint['id'], regionA, countA, regionB, countB)
         logit(msg)
-        return (overthreshold, reads)
+        return (over_threshold, reads)
 
     reads_generator = chain(
         get_reads_iterator(regionA, sample),
