@@ -204,7 +204,7 @@ def make_detailed_empty_genotype(variant, sample):
     variant.genotype(sample.name).set_format('AB', '.')
     return variant
 
-def check_split_read_evidence(sam_fragment, breakpoint, split_slop, min_aligned):
+def gather_split_read_evidence(sam_fragment, breakpoint, split_slop, min_aligned):
     (ref_seq, alt_seq, alt_clip) = (0, 0, 0)
 
     elems = ('chrom', 'pos', 'ci', 'is_reverse')
@@ -236,7 +236,7 @@ def check_split_read_evidence(sam_fragment, breakpoint, split_slop, min_aligned)
 
     return (ref_seq, alt_seq, alt_clip)
 
-def check_paired_end_evidence(fragment, breakpoint, min_aligned):
+def gather_paired_end_evidence(fragment, breakpoint, min_aligned):
     (ref_span, alt_span) = (0, 0)
     ref_ciA = [0,0]
     ref_ciB = [0,0]
@@ -326,14 +326,14 @@ def tally_variant_read_fragments(variant, sample, split_slop, min_aligned, break
         fragment = sam_fragments[query_name]
 
         (ref_seq_calc, alt_seq_calc, alt_clip_calc) = \
-                check_split_read_evidence(fragment, breakpoint, split_slop, min_aligned)
+                gather_split_read_evidence(fragment, breakpoint, split_slop, min_aligned)
 
         ref_seq += ref_seq_calc
         alt_seq += alt_seq_calc
         alt_clip += alt_clip_calc
 
         (ref_span_calc, alt_span_calc, ref_ciA_calc, ref_ciB_calc) = \
-                check_paired_end_evidence(fragment, breakpoint, min_aligned)
+                gather_paired_end_evidence(fragment, breakpoint, min_aligned)
 
         ref_span += ref_span_calc
         alt_span += alt_span_calc
