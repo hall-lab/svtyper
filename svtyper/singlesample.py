@@ -15,7 +15,7 @@ def get_args():
 svtyper\n\
 author: " + 'Indraniel Das (idas@wustl.edu)' + "\n\
 version: " + svtyper.version.__version__ + "\n\
-description: Compute genotype of structural variants based on breakpoint depth")
+description: Compute genotype of structural variants based on breakpoint depth on a SINGLE sample")
     parser.add_argument('-i', '--input_vcf', metavar='FILE', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
     parser.add_argument('-o', '--output_vcf', metavar='FILE',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
     parser.add_argument('-B', '--bam', metavar='FILE', type=str, required=True, help='BAM or CRAM file(s), comma-separated if genotyping multiple samples')
