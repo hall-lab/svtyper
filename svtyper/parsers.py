@@ -6,22 +6,6 @@ from collections import Counter
 from svtyper.statistics import mean, stdev, median, upper_mad
 
 # ==================================================
-# JSON encoding tools
-# ==================================================
-# https://stackoverflow.com/questions/26033239/list-of-objects-to-json-with-python
-def lite_read_json_encoder(obj):
-    if isinstance(obj, LiteRead):
-        return { '__{}__'.format(obj.__class__.__name__): obj.__dict__ }
-
-def lite_read_json_decoder(dct):
-    if '__LiteRead__' in dct:
-        obj = LiteRead()
-        obj.__dict__.update(dct['__LiteRead__'])
-        return obj
-    else:
-        return dct
-
-# ==================================================
 # VCF parsing tools
 # ==================================================
 
@@ -719,78 +703,6 @@ class Sample(object):
         self.bam.close()
 
 # ==================================================
-# Class for reads, containing only needed read
-# read information from a CRAM/BAM/SAM fetch
-# ==================================================
-class LiteRead(object):
-    def __init__(self, pysam_read=None):
-        if pysam_read is None:
-            return
-
-        self.query_name = pysam_read.query_name
-        self.is_unmapped = pysam_read.is_unmapped
-        self.is_duplicate = pysam_read.is_duplicate
-        self.is_supplementary = pysam_read.is_supplementary
-        self.is_reverse = pysam_read.is_reverse
-        self.is_secondary = pysam_read.is_secondary
-        self.reference_name = pysam_read.reference_name
-        self.reference_start = pysam_read.reference_start
-        self.reference_end = pysam_read.reference_end
-        self.query_length = pysam_read.query_length
-        self.query_alignment_length = pysam_read.query_alignment_length
-        self.mapping_quality = pysam_read.mapping_quality
-        self.cigar = pysam_read.cigartuples
-        self.pos = pysam_read.pos
-        self.object_id = pysam_read.__hash__()
-        self.ref_seq_cache = {}
-
-        self.tags = { tag[0] : tag[1] for tag in pysam_read.get_tags() }
-
-    def __hash__(self):
-        return self.object_id
-
-    @classmethod
-    def __json_decoder__(cls, params):
-        instance = cls.__new__()
-        instance.__dict__.update(params['__LiteRead__'])
-        return instance
-
-    def is_ref_seq(self, variant_id):
-        return self.ref_seq_cache[variant_id]
-
-    def update_ref_seq_cache(self, pysam_read, min_aligned, breakpoint):
-        variant_id = breakpoint['id']
-        if variant_id in self.ref_seq_cache: return
-        is_ref_seq_A = self._is_ref_seq_for_side('A', breakpoint, pysam_read, min_aligned)
-        is_ref_seq_B = self._is_ref_seq_for_side('B', breakpoint, pysam_read, min_aligned)
-        self.ref_seq_cache[variant_id] = is_ref_seq_A or is_ref_seq_B
-
-    def _is_ref_seq_for_side(self, side, breakpoint, pysam_read, min_aligned):
-        elems = ('chrom', 'pos')
-        (chrom, pos) = tuple(breakpoint[side][i] for i in elems)
-
-        # check chromosome matching
-        # Note: this step is kind of slow
-        if pysam_read.reference_name != chrom:
-            return False
-
-        # ensure there is min_aligned on both sides of position
-        if pysam_read.get_overlap(max(0, pos - min_aligned), pos + min_aligned) < 2 * min_aligned:
-            return False
-
-        return True
-
-    def has_tag(self, tag):
-        rv = True if tag in self.tags else False
-        return rv
-
-    def get_tag(self, tag):
-        if tag not in self.tags:
-            msg = "[err] Did not find tag '{}' in read '{}'".format(tag, self.query_name)
-            raise KeyError(msg)
-        return self.tags[tag]
-
-# ==================================================
 # Class for SAM fragment, containing all alignments
 # from a single molecule
 # ==================================================
@@ -872,8 +784,6 @@ class SamFragment(object):
                    variant,
                    chrom, pos, ci,
                    min_aligned):
-        if isinstance(read, LiteRead):
-            return read.is_ref_seq(variant.var_id)
 
         # check chromosome matching
         # Note: this step is kind of slow

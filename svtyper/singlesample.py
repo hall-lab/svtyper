@@ -3,7 +3,7 @@ import json, sys, os, math, argparse
 from itertools import chain
 
 import svtyper.version
-from svtyper.parsers import Vcf, Variant, Sample, LiteRead, SamFragment
+from svtyper.parsers import Vcf, Variant, Sample, SamFragment
 from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples
 from svtyper.statistics import bayes_gt
 
