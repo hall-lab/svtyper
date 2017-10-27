@@ -119,6 +119,18 @@ def init_vcf(vcffile, sample, scratchdir):
     v.add_sample(sample.name)
     return v
 
+def collect_breakpoints(vcf):
+    breakpoints = []
+    for vline in vcf_variants(vcf.filename):
+        v = vline.rstrip().split('\t')
+        variant = Variant(v, vcf)
+        if not variant.is_svtype(): continue
+        if not variant.is_valid_svtype(): continue
+        brkpts = vcf.get_variant_breakpoints(variant)
+        if brkpts is None: continue
+        breakpoints.append(brkpts)
+    return breakpoints
+
 def get_breakpoint_regions(breakpoint, sample, z):
     # the distance to the left and right of the breakpoint to scan
     # (max of mean + z standard devs over all of a sample's libraries)
@@ -562,6 +574,10 @@ def sso_genotype(bam_string,
 
         # create the vcf object
         src_vcf = init_vcf(src_vcf_file, sample, scratchdir)
+
+        # 1st pass through input vcf -- collect all the relevant breakpoints
+        logit("Collecting breakpoints")
+        breakpoints = collect_breakpoints(src_vcf)
 
         # pass through input vcf -- perform actual genotyping
         logit("Genotyping Input VCF")
