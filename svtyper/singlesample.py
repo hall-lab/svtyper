@@ -389,8 +389,8 @@ def tally_variant_read_fragments(split_slop, min_aligned, breakpoint, sam_fragme
 
     return counts
 
-def bayesian_genotype(variant, counts, split_weight, disc_weight, debug):
-    is_dup = True if variant.get_svtype() == 'DUP' else False
+def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
+    is_dup = True if breakpoint['svtype'] == 'DUP' else False
 
     elems = ('ref_seq', 'alt_seq', 'alt_clip', 'ref_span', 'alt_span')
     (ref_seq, alt_seq, alt_clip, ref_span, alt_span) = \
@@ -409,7 +409,7 @@ def bayesian_genotype(variant, counts, split_weight, disc_weight, debug):
     if debug:
         msg = ("{} -- "
                "log probabilities (homref, het, homalt) : "
-               "{}").format(variant.var_id, gt_lplist)
+               "{}").format(breakpoint['id'], gt_lplist)
         logit(msg)
 
     result = blank_genotype_result()
@@ -483,7 +483,7 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     if total == 0:
         return make_detailed_empty_genotype_result(breakpoint['id'], sample.name)
 
-    result = bayesian_genotype(variant, counts, split_weight, disc_weight, debug)
+    result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
     return { 'variant.id' : variant.var_id, 'sample.name' : sample.name, 'genotype' : result }
 
 def assign_genotype_to_variant(variant, sample, genotype_result):
