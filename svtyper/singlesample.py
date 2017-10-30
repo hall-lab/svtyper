@@ -150,7 +150,7 @@ def get_breakpoint_regions(breakpoint, sample, z):
 
         regions.append((sample.name, chrom, pos, left_pos, right_pos))
 
-    return regions
+    return tuple(regions)
 
 def count_reads_in_region(region, bam):
     (sample_name, chrom, pos, left_pos, right_pos) = region
