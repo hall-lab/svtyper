@@ -195,29 +195,42 @@ def gather_reads(breakpoint, sample, z, max_reads):
             fragment_dict[read.query_name] = SamFragment(read, lib)
     return (fragment_dict, over_threshold)
 
-def make_empty_genotype(variant, sample):
-    variant.genotype(sample.name).set_format('GT', './.')
-    return variant
+def blank_genotype_result():
+    return {
+        'qual' : 0,
+        'formats': {
+            'GT'  : './.',
+            'GQ'  : '.',
+            'SQ'  : '.',
+            'GL'  : '.',
+            'DP'  : 0,
+            'AO'  : 0,
+            'RO'  : 0,
+            'AS'  : 0,
+            'ASC' : 0,
+            'RS'  : 0,
+            'AP'  : 0,
+            'RP'  : 0,
+            'QR'  : 0,
+            'QA'  : 0,
+            'AB'  : '.',
+        }
+    }
 
-def make_detailed_empty_genotype(variant, sample):
-    variant.genotype(sample.name).set_format('GT', './.')
-    variant.qual = 0
-    variant.genotype(sample.name).set_format('GQ', '.')
-    variant.genotype(sample.name).set_format('SQ', '.')
-    variant.genotype(sample.name).set_format('GL', '.')
-    variant.genotype(sample.name).set_format('DP', 0)
-    variant.genotype(sample.name).set_format('AO', 0)
-    variant.genotype(sample.name).set_format('RO', 0)
-    # if detailed:
-    variant.genotype(sample.name).set_format('AS', 0)
-    variant.genotype(sample.name).set_format('ASC', 0)
-    variant.genotype(sample.name).set_format('RS', 0)
-    variant.genotype(sample.name).set_format('AP', 0)
-    variant.genotype(sample.name).set_format('RP', 0)
-    variant.genotype(sample.name).set_format('QR', 0)
-    variant.genotype(sample.name).set_format('QA', 0)
-    variant.genotype(sample.name).set_format('AB', '.')
-    return variant
+def make_empty_genotype_result(variant_id, sample_name):
+    return {
+        'variant.id' : variant_id,
+        'sample.name' : sample_name,
+        'genotype' : {}
+    }
+
+def make_detailed_empty_genotype_result(variant_id, sample_name):
+    return {
+        'variant.id' : variant_id,
+        'sample.name' : sample_name,
+        'genotype' : blank_genotype_result()
+    }
+
 
 def gather_split_read_evidence(sam_fragment, breakpoint, split_slop, min_aligned):
     (ref_seq, alt_seq, alt_clip) = (0, 0, 0)
@@ -399,22 +412,23 @@ def bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
                "{}").format(variant.var_id, gt_lplist)
         logit(msg)
 
-    variant.genotype(sample.name).set_format('GL', ','.join(['%.0f' % x for x in gt_lplist]))
-    variant.genotype(sample.name).set_format('DP', int(ref_seq + alt_seq + alt_clip + ref_span + alt_span))
-    variant.genotype(sample.name).set_format('RO', int(ref_seq + ref_span))
-    variant.genotype(sample.name).set_format('AO', int(alt_seq + alt_clip + alt_span))
-    variant.genotype(sample.name).set_format('QR', QR)
-    variant.genotype(sample.name).set_format('QA', QA)
+    result = blank_genotype_result()
+    result['formats']['GL'] = ','.join(['%.0f' % x for x in gt_lplist])
+    result['formats']['DP'] = int(ref_seq + alt_seq + alt_clip + ref_span + alt_span)
+    result['formats']['RO'] = int(ref_seq + ref_span)
+    result['formats']['AO'] = int(alt_seq + alt_clip + alt_span)
+    result['formats']['QR'] = QR
+    result['formats']['QA'] = QA
     # if detailed:
-    variant.genotype(sample.name).set_format('RS', int(ref_seq))
-    variant.genotype(sample.name).set_format('AS', int(alt_seq))
-    variant.genotype(sample.name).set_format('ASC', int(alt_clip))
-    variant.genotype(sample.name).set_format('RP', int(ref_span))
-    variant.genotype(sample.name).set_format('AP', int(alt_span))
+    result['formats']['RS'] = int(ref_seq)
+    result['formats']['AS'] = int(alt_seq)
+    result['formats']['ASC'] = int(alt_clip)
+    result['formats']['RP'] = int(ref_span)
+    result['formats']['AP'] = int(alt_span)
     try:
-        variant.genotype(sample.name).set_format('AB', '%.2g' % (QA / float(QR + QA)))
+        result['formats']['AB'] = '%.2g' % (QA / float(QR + QA))
     except ZeroDivisionError:
-        variant.genotype(sample.name).set_format('AB', '.')
+        result['formats']['AB'] = '.'
 
     # assign genotypes
     gt_sum = 0
@@ -430,32 +444,32 @@ def bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
             phred_gq = 200
         else:
             phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
-        variant.genotype(sample.name).set_format('GQ', int(phred_gq))
-        variant.genotype(sample.name).set_format('SQ', sample_qual)
-        variant.qual += sample_qual
+        result['formats']['GQ'] = int(phred_gq)
+        result['formats']['SQ'] = sample_qual
+        result['qual'] += sample_qual
         if gt_idx == 1:
-            variant.genotype(sample.name).set_format('GT', '0/1')
+            result['formats']['GT'] = '0/1'
         elif gt_idx == 2:
-            variant.genotype(sample.name).set_format('GT', '1/1')
+            result['formats']['GT'] = '1/1'
         elif gt_idx == 0:
-            variant.genotype(sample.name).set_format('GT', '0/0')
+            result['formats']['GT'] = '0/0'
     else:
-        variant.genotype(sample.name).set_format('GQ', '.')
-        variant.genotype(sample.name).set_format('SQ', '.')
-        variant.genotype(sample.name).set_format('GT', './.')
+        result['formats']['GQ'] = '.'
+        result['formats']['SQ'] = '.'
+        result['formats']['GT'] = './.'
     
-    return variant
+    return result
 
 def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
     (read_batches, many) = gather_reads(breakpoint, sample, z, max_reads)
 
     # if there are too many reads around the breakpoint
     if many is True:
-        return make_empty_genotype(variant, sample)
+        return make_empty_genotype_result(breakpoint['id'], sample.name)
 
     # if there are no reads around the breakpoint
     if bool(read_batches) is False:
-        return make_detailed_empty_genotype(variant, sample)
+        return make_detailed_empty_genotype_result(breakpoint['id'], sample.name)
 
     counts = tally_variant_read_fragments(
         split_slop,
@@ -467,9 +481,42 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
 
     total = sum([ counts[k] for k in counts.keys() ])
     if total == 0:
-        return make_detailed_empty_genotype(variant, sample)
+        return make_detailed_empty_genotype_result(breakpoint['id'], sample.name)
 
-    variant = bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
+    result = bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
+    return { 'variant.id' : variant.var_id, 'sample.name' : sample.name, 'genotype' : result }
+
+def assign_genotype_to_variant(variant, sample, genotype_result):
+    variant_id = genotype_result['variant.id']
+    sample_name = genotype_result['sample.name']
+    outcome = genotype_result['genotype']
+
+    if (variant.var_id != variant_id) or (sample.name != sample_name):
+        msg = ("[err] assign_genotype: "
+               "Variant/Sample ({}/{}) to genotype result ({}/{}) "
+               "mismatch!").format(variant.var_id, sample.name, variant_id, sample_name)
+        die(msg)
+
+    if bool(outcome) is False:
+        variant.genotype(sample.name).set_format('GT', './.')
+    else:
+        variant.qual += outcome['qual']
+        variant.genotype(sample.name).set_format('GT', outcome['formats']['GT'])
+        variant.genotype(sample.name).set_format('GQ', outcome['formats']['GQ'])
+        variant.genotype(sample.name).set_format('SQ', outcome['formats']['SQ'])
+        variant.genotype(sample.name).set_format('GL', outcome['formats']['GL'])
+        variant.genotype(sample.name).set_format('DP', outcome['formats']['DP'])
+        variant.genotype(sample.name).set_format('AO', outcome['formats']['AO'])
+        variant.genotype(sample.name).set_format('RO', outcome['formats']['RO'])
+        # if detailed:
+        variant.genotype(sample.name).set_format('AS',  outcome['formats']['AS'])
+        variant.genotype(sample.name).set_format('ASC', outcome['formats']['ASC'])
+        variant.genotype(sample.name).set_format('RS',  outcome['formats']['RS'])
+        variant.genotype(sample.name).set_format('AP',  outcome['formats']['AP'])
+        variant.genotype(sample.name).set_format('RP',  outcome['formats']['RP'])
+        variant.genotype(sample.name).set_format('QR',  outcome['formats']['QR'])
+        variant.genotype(sample.name).set_format('QA',  outcome['formats']['QA'])
+        variant.genotype(sample.name).set_format('AB',  outcome['formats']['AB'])
     return variant
 
 def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug):
@@ -520,7 +567,7 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
             logit(msg)
             continue
 
-        variant = calculate_genotype(
+        result = calculate_genotype(
                 variant,
                 sample,
                 z,
@@ -532,6 +579,8 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
                 max_reads,
                 debug
         )
+
+        variant = assign_genotype_to_variant(variant, sample, result)
         variant.write(out_vcf)
 
         # special BND processing
