@@ -472,7 +472,7 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
     variant = bayesian_genotype(variant, sample, counts, split_weight, disc_weight, debug)
     return variant
 
-def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug):
+def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug):
     # initializations
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
@@ -541,6 +541,9 @@ def genotype_vcf(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals
             variant2.genotype = variant.genotype
             variant2.write(out_vcf)
 
+def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, breakpoint_batch_size):
+    pass
+
 def sso_genotype(bam_string,
                  vcf_in,
                  vcf_out,
@@ -579,13 +582,18 @@ def sso_genotype(bam_string,
         # create the vcf object
         src_vcf = init_vcf(src_vcf_file, sample, scratchdir)
 
-        # 1st pass through input vcf -- collect all the relevant breakpoints
-        logit("Collecting breakpoints")
-        breakpoints = collect_breakpoints(src_vcf)
+        if cores is None:
+            logit("Genotyping Input VCF (Serial Mode)")
+            # pass through input vcf -- perform actual genotyping
+            genotype_serial(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug)
+        else:
+            logit("Genotyping Input VCF (Parallel Mode)")
 
-        # pass through input vcf -- perform actual genotyping
-        logit("Genotyping Input VCF")
-        genotype_vcf(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug)
+            # 1st pass through input vcf -- collect all the relevant breakpoints
+            logit("Collecting breakpoints")
+            breakpoints = collect_breakpoints(src_vcf)
+            genotype_parallel(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, batch_size)
+
 
     sample.close()
 
