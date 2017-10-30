@@ -80,7 +80,7 @@ def gather_reads(sample,
             continue
 
         lib = sample.get_lib(read.get_tag('RG'))
-        if lib not in sample.active_libs:
+        if lib.name not in sample.active_libs:
             continue
 
         # read.query_sequence = "*"

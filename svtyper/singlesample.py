@@ -187,7 +187,7 @@ def gather_reads(bam, variant_id, regions, library_data, active_libs, max_reads)
     for read in reads:
         if read.is_unmapped or read.is_duplicate: continue
         lib = library_data[read.get_tag('RG')]
-        if lib not in active_libs: continue
+        if lib.name not in active_libs: continue
         if read.query_name in fragment_dict:
             fragment_dict[read.query_name].add_read(read)
         else:
@@ -524,6 +524,10 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
     total_variants = len(list(vcf_variants(src_vcf.filename)))
+
+    # cleanup unused library attributes
+    for rg in sample.rg_to_lib:
+        sample.rg_to_lib[rg].cleanup()
 
     for i, vline in enumerate(vcf_variants(src_vcf.filename)):
         v = vline.rstrip().split('\t')

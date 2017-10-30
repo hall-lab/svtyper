@@ -430,6 +430,14 @@ class Library(object):
         if self.prevalence is None:
             self.calc_lib_prevalence()
 
+        # remove the uneeded attribute (only needed during object initialization)
+        del self.bam
+
+    def cleanup(self):
+        # the hist attribute is not really needed in the downstream analysis
+        if getattr(self, 'hist'):
+            del self.hist
+
     @classmethod
     def from_lib_info(cls,
                       sample_name,
@@ -598,7 +606,7 @@ class Sample(object):
         self.active_libs = []
         for lib in lib_dict.values():
             if lib.prevalence >= min_lib_prevalence:
-                self.active_libs.append(lib)
+                self.active_libs.append(lib.name)
 
     # constructor from supplied JSON descriptor
     @classmethod
