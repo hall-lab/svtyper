@@ -152,46 +152,46 @@ def get_breakpoint_regions(breakpoint, sample, z):
 
     return regions
 
-def count_reads_in_region(region, sample):
+def count_reads_in_region(region, bam):
     (sample_name, chrom, pos, left_pos, right_pos) = region
-    count = sample.bam.count(chrom, start=left_pos, stop=right_pos, read_callback='all')
+    count = bam.count(chrom, start=left_pos, stop=right_pos, read_callback='all')
     return count
 
-def get_reads_iterator(region, sample):
+def get_reads_iterator(region, bam):
     (sample_name, chrom, pos, left_pos, right_pos) = region
-    iterator = sample.bam.fetch(chrom, left_pos, right_pos)
+    iterator = bam.fetch(chrom, left_pos, right_pos)
     return iterator
 
-def retrieve_reads_from_db(breakpoint, sample, z, max_reads):
-    (over_threshold, reads) = (False, [])
-    (regionA, regionB) = get_breakpoint_regions(breakpoint, sample, z)
-    (countA, countB) = ( count_reads_in_region(regionA, sample), count_reads_in_region(regionB, sample) )
+def retrieve_reads_from_db(bam, variant_id, regions, max_reads):
+    over_threshold = False
+    (regionA, regionB) = regions
+    (countA, countB) = ( count_reads_in_region(regionA, bam), count_reads_in_region(regionB, bam) )
     if countA > max_reads or countB > max_reads:
         over_threshold = True
         msg = ("SKIPPING -- Variant '{}' has too many reads\n"
                 "\t\t A: {} : {}\n"
-                "\t\t B: {} : {}").format(breakpoint['id'], regionA, countA, regionB, countB)
+                "\t\t B: {} : {}").format(breakpoints['id'], regionA, countA, regionB, countB)
         logit(msg)
-        return (over_threshold, reads)
+        return (over_threshold, [])
 
     reads_generator = chain(
-        get_reads_iterator(regionA, sample),
-        get_reads_iterator(regionB, sample)
+        get_reads_iterator(regionA, bam),
+        get_reads_iterator(regionB, bam)
     )
     return (over_threshold, reads_generator)
 
-def gather_reads(breakpoint, sample, z, max_reads):
+def gather_reads(bam, variant_id, regions, library_data, active_libs, max_reads):
     fragment_dict = {}
-    (over_threshold, reads) = retrieve_reads_from_db(breakpoint, sample, z, max_reads)
+    (over_threshold, reads) = retrieve_reads_from_db(bam, variant_id, regions, max_reads)
 
     for read in reads:
         if read.is_unmapped or read.is_duplicate: continue
-        lib = sample.get_lib(read.get_tag('RG'))
-        if lib not in sample.active_libs: continue
+        lib = library_data[read.get_tag('RG')]
+        if lib not in active_libs: continue
         if read.query_name in fragment_dict:
             fragment_dict[read.query_name].add_read(read)
         else:
-            lib = sample.get_lib(read.get_tag('RG'))
+            lib = library_data[read.get_tag('RG')]
             fragment_dict[read.query_name] = SamFragment(read, lib)
     return (fragment_dict, over_threshold)
 
@@ -460,8 +460,13 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
     
     return result
 
-def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
-    (read_batches, many) = gather_reads(breakpoint, sample, z, max_reads)
+def calculate_genotype(sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
+    regions = get_breakpoint_regions(breakpoint, sample, z)
+    bam = sample.bam
+    library_data = sample.rg_to_lib
+    active_libs = sample.active_libs
+    sample_name = sample.name
+    (read_batches, many) = gather_reads(bam, breakpoint['id'], regions, library_data, active_libs, max_reads)
 
     # if there are too many reads around the breakpoint
     if many is True:
@@ -484,7 +489,7 @@ def calculate_genotype(variant, sample, z, split_slop, min_aligned, split_weight
         return make_detailed_empty_genotype_result(breakpoint['id'], sample.name)
 
     result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
-    return { 'variant.id' : variant.var_id, 'sample.name' : sample.name, 'genotype' : result }
+    return { 'variant.id' : breakpoint['id'], 'sample.name' : sample.name, 'genotype' : result }
 
 def assign_genotype_to_variant(variant, sample, genotype_result):
     variant_id = genotype_result['variant.id']
@@ -568,7 +573,6 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
             continue
 
         result = calculate_genotype(
-                variant,
                 sample,
                 z,
                 split_slop,
