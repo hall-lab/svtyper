@@ -167,6 +167,7 @@ def retrieve_reads_from_db(breakpoint, sample, z, max_reads):
     (regionA, regionB) = get_breakpoint_regions(breakpoint, sample, z)
     (countA, countB) = ( count_reads_in_region(regionA, sample), count_reads_in_region(regionB, sample) )
     if countA > max_reads or countB > max_reads:
+        over_threshold = True
         msg = ("SKIPPING -- Variant '{}' has too many reads\n"
                 "\t\t A: {} : {}\n"
                 "\t\t B: {} : {}").format(breakpoint['id'], regionA, countA, regionB, countB)
