@@ -29,6 +29,8 @@ description: Compute genotype of structural variants based on breakpoint depth o
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--cores', type=int, metavar='INT', required=False, default=None, help='number of workers to use for parallel processing')
+    parser.add_argument('--batch_size', type=int, metavar='INT', required=False, default=1000, help='number of breakpoints to batch for a parallel processing worker job')
 
     # parse the arguments
     args = parser.parse_args()
@@ -549,7 +551,9 @@ def sso_genotype(bam_string,
                  debug,
                  ref_fasta,
                  sum_quals,
-                 max_reads):
+                 max_reads,
+                 cores,
+                 batch_size):
 
     # quit early if input VCF is absent
     if vcf_in is None:
@@ -606,7 +610,9 @@ def main():
                  args.debug,
                  args.ref_fasta,
                  args.sum_quals,
-                 args.max_reads)
+                 args.max_reads,
+                 args.cores,
+                 args.batch_size)
 
 # --------------------------------------
 # command-line/console entrypoint
