@@ -460,21 +460,16 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
     
     return result
 
-def calculate_genotype(sample, z, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
-    regions = get_breakpoint_regions(breakpoint, sample, z)
-    bam = sample.bam
-    library_data = sample.rg_to_lib
-    active_libs = sample.active_libs
-    sample_name = sample.name
+def calculate_genotype(bam, regions, library_data, active_libs, sample_name, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
     (read_batches, many) = gather_reads(bam, breakpoint['id'], regions, library_data, active_libs, max_reads)
 
     # if there are too many reads around the breakpoint
     if many is True:
-        return make_empty_genotype_result(breakpoint['id'], sample.name)
+        return make_empty_genotype_result(breakpoint['id'], sample_name)
 
     # if there are no reads around the breakpoint
     if bool(read_batches) is False:
-        return make_detailed_empty_genotype_result(breakpoint['id'], sample.name)
+        return make_detailed_empty_genotype_result(breakpoint['id'], sample_name)
 
     counts = tally_variant_read_fragments(
         split_slop,
@@ -486,10 +481,10 @@ def calculate_genotype(sample, z, split_slop, min_aligned, split_weight, disc_we
 
     total = sum([ counts[k] for k in counts.keys() ])
     if total == 0:
-        return make_detailed_empty_genotype_result(breakpoint['id'], sample.name)
+        return make_detailed_empty_genotype_result(breakpoint['id'], sample_name)
 
     result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
-    return { 'variant.id' : breakpoint['id'], 'sample.name' : sample.name, 'genotype' : result }
+    return { 'variant.id' : breakpoint['id'], 'sample.name' : sample_name, 'genotype' : result }
 
 def assign_genotype_to_variant(variant, sample, genotype_result):
     variant_id = genotype_result['variant.id']
@@ -573,8 +568,11 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
             continue
 
         result = calculate_genotype(
-                sample,
-                z,
+                sample.bam,
+                get_breakpoint_regions(breakpoints, sample, z),
+                sample.rg_to_lib,
+                sample.active_libs,
+                sample.name,
                 split_slop,
                 min_aligned,
                 split_weight,
