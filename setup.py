@@ -26,6 +26,7 @@ setup(
         'pysam>=0.8.1',
         'numpy',
         'scipy',
+        'cytoolz>=0.8.2',
     ],
     scripts=[
         'scripts/sv_classifier.py',

@@ -1,6 +1,7 @@
 from __future__ import print_function
 import json, sys, os, math, argparse
 from itertools import chain
+from cytoolz.itertoolz import partition_all
 
 import svtyper.version
 from svtyper.parsers import Vcf, Variant, Sample, SamFragment
