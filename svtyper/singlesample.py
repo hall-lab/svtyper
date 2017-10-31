@@ -495,8 +495,11 @@ def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, a
 
     genotype_results = []
     t0 = time.time()
+    #for i, (breakpoint, regions) in enumerate(zip(batch_breakpoints, batch_regions)):
     for breakpoint, regions in zip(batch_breakpoints, batch_regions):
+        #logit("({}) Entering gather_reads -- {}".format(batch_number, i))
         (read_batches, many) = gather_reads(bam, breakpoint['id'], regions, library_data, active_libs, max_reads)
+        #logit("({}) Exiting gather_reads -- {}".format(batch_number, i))
 
         # if there are too many reads around the breakpoint
         if many is True:
@@ -508,6 +511,7 @@ def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, a
             genotype_results.append(make_detailed_empty_genotype_result(breakpoint['id'], sample_name))
             continue
 
+        #logit("({}) Entering tally_variant_read_fragments -- {}".format(batch_number, i))
         counts = tally_variant_read_fragments(
             split_slop,
             min_aligned,
@@ -515,13 +519,16 @@ def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, a
             read_batches,
             debug
         )
+        #logit("({}) Exiting tally_variant_read_fragments -- {}".format(batch_number, i))
 
         total = sum([ counts[k] for k in counts.keys() ])
         if total == 0:
             genotype_results.append(make_detailed_empty_genotype_result(breakpoint['id'], sample_name))
             continue
 
+        #logit("({}) Entering bayesian_genotype -- {}".format(batch_number, i))
         result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
+        #logit("({}) Exiting bayesian_genotype -- {}".format(batch_number, i))
         genotype_results.append({ 'variant.id' : breakpoint['id'], 'sample.name' : sample_name, 'genotype' : result })
 
     t1 = time.time()
