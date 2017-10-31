@@ -173,7 +173,7 @@ def retrieve_reads_from_db(bam, variant_id, regions, max_reads):
         over_threshold = True
         msg = ("SKIPPING -- Variant '{}' has too many reads\n"
                 "\t\t A: {} : {}\n"
-                "\t\t B: {} : {}").format(breakpoints['id'], regionA, countA, regionB, countB)
+                "\t\t B: {} : {}").format(variant_id, regionA, countA, regionB, countB)
         logit(msg)
         return (over_threshold, [])
 
