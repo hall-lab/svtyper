@@ -733,10 +733,14 @@ def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_
     pool = mp.Pool(processes=cores)
     results = [pool.apply_async(parallel_calculate_genotype, args=std_args + (b, r, i)) for i, (b, r) in enumerate(zip(breakpoints_batches, regions_batches))]
     results = [p.get() for p in results]
+    logit("Finished parallel breakpoint processing")
+    logit("Merging genotype results")
     merged_genotypes = { g['variant.id'] : g for batch in results for g in batch }
 
     # 2nd pass through input vcf -- apply the calculated genotypes to the variants
+    logit("Applying genotype results to vcf")
     apply_genotypes_to_vcf(src_vcf, out_vcf, merged_genotypes, sample, sum_quals)
+    logit("All Done!")
 
 def sso_genotype(bam_string,
                  vcf_in,
