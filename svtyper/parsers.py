@@ -435,7 +435,7 @@ class Library(object):
 
     def cleanup(self):
         # the hist attribute is not really needed in the actual genotyping
-        if getattr(self, 'hist'):
+        if hasattr(self, 'hist'):
             del self.hist
 
     @classmethod
