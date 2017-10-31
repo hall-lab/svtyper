@@ -1,5 +1,5 @@
 from __future__ import print_function
-import json, sys, os, math, argparse
+import json, sys, os, math, argparse, time
 from itertools import chain
 import multiprocessing as mp
 
@@ -494,6 +494,7 @@ def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, a
     bam = open_alignment_file(alignment_file, reference_fasta)
 
     genotype_results = []
+    t0 = time.time()
     for breakpoint, regions in zip(batch_breakpoints, batch_regions):
         (read_batches, many) = gather_reads(bam, breakpoint['id'], regions, library_data, active_libs, max_reads)
 
@@ -523,6 +524,8 @@ def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, a
         result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
         genotype_results.append({ 'variant.id' : breakpoint['id'], 'sample.name' : sample_name, 'genotype' : result })
 
+    t1 = time.time()
+    logit("Batch {} Processing Elapsed Time: {:.4f} secs".format(batch_number, t1 - t0))
     bam.close()
     return genotype_results
 
