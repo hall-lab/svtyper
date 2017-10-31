@@ -1,6 +1,8 @@
 from __future__ import print_function
 import json, sys, os, math, argparse
 from itertools import chain
+import multiprocessing as mp
+
 from cytoolz.itertoolz import partition_all
 
 import svtyper.version
@@ -461,7 +463,7 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
     
     return result
 
-def calculate_genotype(bam, regions, library_data, active_libs, sample_name, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
+def serial_calculate_genotype(bam, regions, library_data, active_libs, sample_name, split_slop, min_aligned, split_weight, disc_weight, breakpoint, max_reads, debug):
     (read_batches, many) = gather_reads(bam, breakpoint['id'], regions, library_data, active_libs, max_reads)
 
     # if there are too many reads around the breakpoint
@@ -486,6 +488,42 @@ def calculate_genotype(bam, regions, library_data, active_libs, sample_name, spl
 
     result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
     return { 'variant.id' : breakpoint['id'], 'sample.name' : sample_name, 'genotype' : result }
+
+def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, active_libs, sample_name, split_slop, min_aligned, split_weight, disc_weight, max_reads, debug, batch_breakpoints, batch_regions):
+    bam = open_alignment_file(alignment_file, reference_fasta)
+
+    genotype_results = []
+    for breakpoint, regions in zip(batch_breakpoints, batch_regions):
+        (read_batches, many) = gather_reads(bam, breakpoint['id'], regions, library_data, active_libs, max_reads)
+
+        # if there are too many reads around the breakpoint
+        if many is True:
+            genotype_results.append(make_empty_genotype_result(breakpoint['id'], sample_name))
+            continue
+
+        # if there are no reads around the breakpoint
+        if bool(read_batches) is False:
+            genotype_results.append(make_detailed_empty_genotype_result(breakpoint['id'], sample_name))
+            continue
+
+        counts = tally_variant_read_fragments(
+            split_slop,
+            min_aligned,
+            breakpoint,
+            read_batches,
+            debug
+        )
+
+        total = sum([ counts[k] for k in counts.keys() ])
+        if total == 0:
+            genotype_results.append(make_detailed_empty_genotype_result(breakpoint['id'], sample_name))
+            continue
+
+        result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
+        genotype_results.append({ 'variant.id' : breakpoint['id'], 'sample.name' : sample_name, 'genotype' : result })
+
+    bam.close()
+    return genotype_results
 
 def assign_genotype_to_variant(variant, sample, genotype_result):
     variant_id = genotype_result['variant.id']
@@ -572,7 +610,7 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
             logit(msg)
             continue
 
-        result = calculate_genotype(
+        result = serial_calculate_genotype(
                 sample.bam,
                 get_breakpoint_regions(breakpoints, sample, z),
                 sample.rg_to_lib,
@@ -597,8 +635,102 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
             variant2.genotype = variant.genotype
             variant2.write(out_vcf)
 
-def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, breakpoint_batch_size):
-    pass
+def apply_genotypes_to_vcf(src_vcf, out_vcf, genotypes, sample, sum_quals):
+    # initializations
+    bnd_cache = {}
+    src_vcf.write_header(out_vcf)
+    total_variants = len(list(vcf_variants(src_vcf.filename)))
+
+    for i, vline in enumerate(vcf_variants(src_vcf.filename)):
+        v = vline.rstrip().split('\t')
+        variant = Variant(v, src_vcf)
+        if not sum_quals:
+            variant.qual = 0
+
+        if not variant.is_svtype():
+            msg = ('Warning: SVTYPE missing '
+                   'at variant %s. '
+                   'Skipping.\n') % (variant.var_id)
+            logit(msg)
+            variant.write(out_vcf)
+            continue
+
+        if not variant.is_valid_svtype():
+            msg = ('Warning: Unsupported SVTYPE '
+                   'at variant %s (%s). '
+                   'Skipping.\n') % (variant.var_id, variant.get_svtype())
+            logit(msg)
+            variant.write(out_vcf)
+            continue
+
+        # special BND processing
+        if variant.get_svtype() == 'BND':
+            if variant.info['MATEID'] in bnd_cache:
+                variant2 = variant
+                variant = bnd_cache[variant.info['MATEID']]
+                del bnd_cache[variant.var_id]
+            else:
+                bnd_cache[variant.var_id] = variant
+                continue
+
+        result = genotypes[variant.var_id]
+
+        if result is None:
+            msg = ("Found no genotype results for variant "
+                   "'{}' ({})").format(variant.var_id, variant.get_svtype())
+            logit(msg)
+            raise RuntimeError(msg)
+
+        variant = assign_genotype_to_variant(variant, sample, result)
+        variant.write(out_vcf)
+
+        # special BND processing
+        if variant.get_svtype() == 'BND':
+            variant2.qual = variant.qual
+            variant2.active_formats = variant.active_formats
+            variant2.genotype = variant.genotype
+            variant2.write(out_vcf)
+
+def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, breakpoint_batch_size, ref_fasta):
+
+    # cleanup unused library attributes
+    for rg in sample.rg_to_lib:
+        sample.rg_to_lib[rg].cleanup()
+
+    # 1st pass through input vcf -- collect all the relevant breakpoints
+    logit("Collecting breakpoints")
+    breakpoints = collect_breakpoints(src_vcf)
+    logit("Collecting regions")
+    regions = [ get_breakpoint_regions(b, sample, z) for b in breakpoints ]
+    logit("Batch breakpoints into groups of {}".format(breakpoint_batch_size))
+    breakpoints_batches = list(partition_all(breakpoint_batch_size, breakpoints))
+    logit("Batch regions into groups of {}".format(breakpoint_batch_size))
+    regions_batches = list(partition_all(breakpoint_batch_size, regions))
+
+    if len(breakpoints_batches) != len(regions_batches):
+        raise RuntimeError("Batch error: breakpoint batches ({}) != region batches ({})".format(breakpoints_batches, regions_batches))
+
+    std_args = (
+        sample.bam.filename,
+        ref_fasta,
+        sample.rg_to_lib,
+        sample.active_libs,
+        sample.name,
+        split_slop,
+        min_aligned,
+        split_weight,
+        disc_weight,
+        max_reads,
+        debug
+    )
+
+    pool = mp.Pool(processes=cores)
+    results = [pool.apply_async(parallel_calculate_genotype, args=std_args + (b, r)) for b, r in zip(breakpoints_batches, regions_batches)]
+    results = [p.get() for p in results]
+    merged_genotypes = { g['variant.id'] : g for batch in results for g in batch }
+
+    # 2nd pass through input vcf -- apply the calculated genotypes to the variants
+    apply_genotypes_to_vcf(src_vcf, out_vcf, merged_genotypes, sample, sum_quals)
 
 def sso_genotype(bam_string,
                  vcf_in,
@@ -645,10 +777,7 @@ def sso_genotype(bam_string,
         else:
             logit("Genotyping Input VCF (Parallel Mode)")
 
-            # 1st pass through input vcf -- collect all the relevant breakpoints
-            logit("Collecting breakpoints")
-            breakpoints = collect_breakpoints(src_vcf)
-            genotype_parallel(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, batch_size)
+            genotype_parallel(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, batch_size, ref_fasta)
 
 
     sample.close()

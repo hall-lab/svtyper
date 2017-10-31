@@ -17,7 +17,7 @@ class TestIntegration(unittest.TestCase):
         if os.path.exists(out_vcf):
             os.remove(out_vcf)
 
-    def test_integration(self):
+    def test_serial_integration(self):
         with open(in_vcf, "r") as inf, open(out_vcf, "w") as outf:
             s.sso_genotype(bam_string=in_bam,
                            vcf_in=inf,
@@ -32,6 +32,31 @@ class TestIntegration(unittest.TestCase):
                            sum_quals=False,
                            max_reads=1000,
                            cores=None,
+                           batch_size=1000)
+
+        fail_msg = "did not file output vcf '{}' after running sv_genotype".format(out_vcf)
+        self.assertTrue(os.path.exists(out_vcf), fail_msg)
+
+        fail_msg = ("output vcf '{}' "
+                    "did not match expected "
+                    "output vcf '{}'").format(out_vcf, expected_out_vcf)
+        self.assertTrue(self.diff(), fail_msg)
+
+    def test_parallel_integration(self):
+        with open(in_vcf, "r") as inf, open(out_vcf, "w") as outf:
+            s.sso_genotype(bam_string=in_bam,
+                           vcf_in=inf,
+                           vcf_out=outf,
+                           min_aligned=20,
+                           split_weight=1,
+                           disc_weight=1,
+                           num_samp=1000000,
+                           lib_info_path=lib_info_json,
+                           debug=False,
+                           ref_fasta=None,
+                           sum_quals=False,
+                           max_reads=1000,
+                           cores=1,
                            batch_size=1000)
 
         fail_msg = "did not file output vcf '{}' after running sv_genotype".format(out_vcf)
