@@ -434,7 +434,7 @@ class Library(object):
         del self.bam
 
     def cleanup(self):
-        # the hist attribute is not really needed in the downstream analysis
+        # the hist attribute is not really needed in the actual genotyping
         if getattr(self, 'hist'):
             del self.hist
 
