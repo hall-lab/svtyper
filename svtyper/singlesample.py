@@ -758,9 +758,10 @@ def sso_genotype(bam_string,
         return
 
     (invcf, outvcf) = (os.path.abspath(vcf_in.name), os.path.abspath(vcf_out.name))
-    ensure_valid_alignment_file(bam_string)
+    full_bam_path = os.path.abspath(bam_string)
+    ensure_valid_alignment_file(full_bam_path)
 
-    sample = setup_sample(bam_string, lib_info_path, ref_fasta, num_samp, min_aligned)
+    sample = setup_sample(full_bam_path, lib_info_path, ref_fasta, num_samp, min_aligned)
     dump_library_metrics(lib_info_path, sample)
 
     # set variables for genotyping
