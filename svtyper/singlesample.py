@@ -489,7 +489,8 @@ def serial_calculate_genotype(bam, regions, library_data, active_libs, sample_na
     result = bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug)
     return { 'variant.id' : breakpoint['id'], 'sample.name' : sample_name, 'genotype' : result }
 
-def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, active_libs, sample_name, split_slop, min_aligned, split_weight, disc_weight, max_reads, debug, batch_breakpoints, batch_regions):
+def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, active_libs, sample_name, split_slop, min_aligned, split_weight, disc_weight, max_reads, debug, batch_breakpoints, batch_regions, batch_number):
+    logit("Starting batch: {}".format(batch_number))
     bam = open_alignment_file(alignment_file, reference_fasta)
 
     genotype_results = []
@@ -710,6 +711,8 @@ def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_
     if len(breakpoints_batches) != len(regions_batches):
         raise RuntimeError("Batch error: breakpoint batches ({}) != region batches ({})".format(breakpoints_batches, regions_batches))
 
+    logit("Number of batches to parallel process: {}".format(len(breakpoints_batches)))
+
     std_args = (
         sample.bam.filename,
         ref_fasta,
@@ -725,7 +728,7 @@ def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_
     )
 
     pool = mp.Pool(processes=cores)
-    results = [pool.apply_async(parallel_calculate_genotype, args=std_args + (b, r)) for b, r in zip(breakpoints_batches, regions_batches)]
+    results = [pool.apply_async(parallel_calculate_genotype, args=std_args + (b, r, i)) for i, (b, r) in enumerate(zip(breakpoints_batches, regions_batches))]
     results = [p.get() for p in results]
     merged_genotypes = { g['variant.id'] : g for batch in results for g in batch }
 
