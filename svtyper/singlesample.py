@@ -776,7 +776,7 @@ def sso_genotype(bam_string,
         logit("Temporary scratch directory: {}".format(scratchdir))
 
         # dump the vcf file into the tmp directory, if we're reading from stdin
-        src_vcf_file = setup_src_vcf_file(vcf_in, invcf, scratchdir)
+        src_vcf_file = setup_src_vcf_file(vcf_in, os.path.basename(invcf), scratchdir)
 
         # create the vcf object
         src_vcf = init_vcf(src_vcf_file, sample, scratchdir)
