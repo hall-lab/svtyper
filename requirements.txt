@@ -1,3 +1,4 @@
 pysam
 scipy
 numpy
+cytoolz
