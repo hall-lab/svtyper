@@ -104,7 +104,7 @@ def dump_piped_vcf_to_file(stdin, basedir):
     line_count = 0
     with open(vcf, 'w') as f:
         for line in stdin:
-            print(line, sep='', file=f)
+            print(line, end='', file=f)
             line_count += 1
     logit('finished temporary vcf dump -- {} lines'.format(line_count))
     return vcf
