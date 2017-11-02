@@ -172,8 +172,8 @@ def retrieve_reads_from_db(bam, variant_id, regions, max_reads):
     if countA > max_reads or countB > max_reads:
         over_threshold = True
         msg = ("SKIPPING -- Variant '{}' has a region with too many reads (> {})\n"
-                "\t\t A: {} : (sample={} chrom={} center={} leftflank={} rightflank={})\n"
-                "\t\t B: {} : (sample={} chrom={} center={} leftflank={} rightflank={})").format(
+                "\t\t A: (sample={} chrom={} center={} leftflank={} rightflank={}) : {}\n"
+                "\t\t B: (sample={} chrom={} center={} leftflank={} rightflank={}) : {}").format(
                         variant_id,
                         max_reads,
                         regionA[0], regionA[1], regionA[2], regionA[3], regionA[4],
