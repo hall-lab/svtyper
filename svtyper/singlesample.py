@@ -542,7 +542,7 @@ def assign_genotype_to_variant(variant, sample, genotype_result):
     outcome = genotype_result['genotype']
 
     if (variant.var_id != variant_id) or (sample.name != sample_name):
-        msg = ("[err] assign_genotype: "
+        msg = ("Error: assign_genotype: "
                "Variant/Sample ({}/{}) to genotype result ({}/{}) "
                "mismatch!").format(variant.var_id, sample.name, variant_id, sample_name)
         die(msg)
