@@ -94,7 +94,7 @@ def dump_library_metrics(lib_info_path, sample):
 
 def setup_src_vcf_file(fobj, invcf, rootdir):
     src_vcf = invcf
-    if invcf == '<stdin>':
+    if os.path.basename(invcf) == '<stdin>':
         src_vcf = dump_piped_vcf_to_file(fobj, rootdir)
     return src_vcf
 
@@ -776,7 +776,7 @@ def sso_genotype(bam_string,
         logit("Temporary scratch directory: {}".format(scratchdir))
 
         # dump the vcf file into the tmp directory, if we're reading from stdin
-        src_vcf_file = setup_src_vcf_file(vcf_in, os.path.basename(invcf), scratchdir)
+        src_vcf_file = setup_src_vcf_file(vcf_in, invcf, scratchdir)
 
         # create the vcf object
         src_vcf = init_vcf(src_vcf_file, sample, scratchdir)
