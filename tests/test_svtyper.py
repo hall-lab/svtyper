@@ -1,6 +1,6 @@
 
 from .context import parsers as p
-from .context import core
+from .context import classic
 import unittest, os, subprocess
 
 HERE = os.path.dirname(__file__)
@@ -65,7 +65,7 @@ class TestIntegration(unittest.TestCase):
 
     def test_integration(self):
         with open(in_vcf, "r") as inf, open(out_vcf, "w") as outf:
-            core.sv_genotype(bam_string=in_bam,
+            classic.sv_genotype(bam_string=in_bam,
                              vcf_in=inf,
                              vcf_out=outf,
                              min_aligned=20,
