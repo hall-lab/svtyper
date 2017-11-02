@@ -711,6 +711,7 @@ def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_
     # 1st pass through input vcf -- collect all the relevant breakpoints
     logit("Collecting breakpoints")
     breakpoints = collect_breakpoints(src_vcf)
+    logit("Collected {} breakpoints".format(len(breakpoints)))
     logit("Collecting regions")
     regions = [ get_breakpoint_regions(b, sample, z) for b in breakpoints ]
     logit("Batch breakpoints into groups of {}".format(breakpoint_batch_size))
