@@ -21,7 +21,7 @@ install:
   # Useful for debugging any issues with conda
   - conda info -a
 
-  - deps='pysam'
+  - deps='pysam cytoolz'
   - conda create -q -c bioconda -n test-environment python=$TRAVIS_PYTHON_VERSION $deps
   - source activate test-environment
   - make install
