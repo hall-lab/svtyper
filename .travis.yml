@@ -27,7 +27,7 @@ install:
   - make install
 
 script:
-    - cd test && ./test.sh
+    - cd tests && ./test-cli.sh
     - make test
 
 # # command to install dependencies
