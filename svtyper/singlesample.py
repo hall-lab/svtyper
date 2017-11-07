@@ -501,17 +501,20 @@ def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, a
     bam = open_alignment_file(alignment_file, reference_fasta)
 
     genotype_results = []
+    (skip_count, no_read_count) = (0, 0)
     t0 = time.time()
     for breakpoint, regions in zip(batch_breakpoints, batch_regions):
         (read_batches, many) = gather_reads(bam, breakpoint['id'], regions, library_data, active_libs, max_reads)
 
         # if there are too many reads around the breakpoint
         if many is True:
+            skip_count += 1
             genotype_results.append(make_empty_genotype_result(breakpoint['id'], sample_name))
             continue
 
         # if there are no reads around the breakpoint
         if bool(read_batches) is False:
+            no_read_count += 1
             genotype_results.append(make_detailed_empty_genotype_result(breakpoint['id'], sample_name))
             continue
 
@@ -534,7 +537,7 @@ def parallel_calculate_genotype(alignment_file, reference_fasta, library_data, a
     t1 = time.time()
     logit("Batch {} Processing Elapsed Time: {:.4f} secs".format(batch_number, t1 - t0))
     bam.close()
-    return genotype_results
+    return { 'genotypes' : genotype_results, 'skip-count' : skip_count, 'no-read-count' : no_read_count }
 
 def assign_genotype_to_variant(variant, sample, genotype_result):
     variant_id = genotype_result['variant.id']
@@ -711,7 +714,7 @@ def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_
     # 1st pass through input vcf -- collect all the relevant breakpoints
     logit("Collecting breakpoints")
     breakpoints = collect_breakpoints(src_vcf)
-    logit("Collected {} breakpoints".format(len(breakpoints)))
+    logit("Number of breakpoints/SVs to process: {}".format(len(breakpoints)))
     logit("Collecting regions")
     regions = [ get_breakpoint_regions(b, sample, z) for b in breakpoints ]
     logit("Batch breakpoints into groups of {}".format(breakpoint_batch_size))
@@ -743,7 +746,13 @@ def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_
     results = [p.get() for p in results]
     logit("Finished parallel breakpoint processing")
     logit("Merging genotype results")
-    merged_genotypes = { g['variant.id'] : g for batch in results for g in batch }
+    merged_genotypes = { g['variant.id'] : g for batch in results for g in batch['genotypes'] }
+
+    total_variants_skipped = sum([ batch['skip-count'] for batch in results ])
+    total_variants_with_no_reads = sum([ batch['no-read-count'] for batch in results ])
+
+    logit("Number of variants skipped (surpassed max-reads threshold): {}".format(total_variants_skipped))
+    logit("Number of variants with no reads: {}".format(total_variants_with_no_reads))
 
     # 2nd pass through input vcf -- apply the calculated genotypes to the variants
     logit("Applying genotype results to vcf")
