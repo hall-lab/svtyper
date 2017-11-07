@@ -27,7 +27,7 @@ install:
   - make install
 
 script:
-    - cd tests && ./test-cli.sh
+    - cd tests && ./test-cli.sh && if [[ -e out.vcf ]]; then rm -fv out.vcf; fi && cd ..
     - make test
 
 # # command to install dependencies
