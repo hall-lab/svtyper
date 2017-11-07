@@ -14,18 +14,23 @@ SVTyper performs breakpoint genotyping of structural variants (SVs) using whole 
 ## Installation
 
 Requirements:
-- Python 2.7 or newer
-- Pysam 0.8.1 or newer
+- Python 2.7.x
 
 ### Install via `pip`
 
     pip install git+https://github.com/hall-lab/svtyper.git
 
-`svtyper` depends on [pysam][0] _(version 0.8.1 or newer)_, [numpy][1], and [scipy][2].  If the dependencies aren't already available on your system, `pip` will attempt to download and install them.
+`svtyper` depends on [pysam][0] _(version 0.8.1 or newer)_, [numpy][1], and [scipy][2]; `svtyper-sso` additionally depends on [cytoolz][7]. If the dependencies aren't already available on your system, `pip` will attempt to download and install them.
+
+## `svtyper` vs `svtyper-sso`
+
+`svtyper` is the original implementation of the genotyping algorithm, and works with multiple samples.  `svtyper-sso` is an alternative implementation of `svtyper` that is optimized for genotyping a single sample.  `svtyper-sso` is a parallelized implementation of `svtyper` that takes advantage of multiple CPU cores via the [multiprocessing][8] module. `svtyper-sso` can offer a 2x or more speedup (depending on how many CPU cores used) in genotyping a single sample.
 
 ## Example Usage
 
-### As a Command Line Python Script
+### `svtyper`
+
+#### As a Command Line Python Script
 
 ```bash
 svtyper \
@@ -35,10 +40,10 @@ svtyper \
     > sv.gt.vcf
 ```
 
-### As a Python Library
+#### As a Python Library
 
 ```python
-import svtyper.core as svt
+import svtyper.classic as svt
 
 input_vcf = "/path/to/input.vcf"
 input_bam = "/path/to/input.bam"
@@ -59,6 +64,51 @@ with open(input_vcf, "r") as inf, open(output_vcf, "w") as outf:
                     ref_fasta=None,
                     sum_quals=False,
                     max_reads=None)
+
+# Results will be inside the /path/to/output.vcf file
+```
+
+### `svtyper-sso`
+
+#### As a Command Line Python Script
+
+```bash
+svtyper-sso \
+    --core 2 # number of cpu cores to use \
+    --batch_size 1000 # number of SVs to process in a single batch (default: 1000) \
+    --max_reads 1000 # skip genotyping if SV contains valid reads greater than this threshold (default: 1000) \
+    -i sv.vcf \
+    -B sample.bam \
+    -l sample.bam.json \
+    > sv.gt.vcf
+```
+
+#### As a Python Library
+
+```python
+import svtyper.singlesample as sso
+
+input_vcf = "/path/to/input.vcf"
+input_bam = "/path/to/input.bam"
+library_info = "/path/to/library_info.json"
+output_vcf = "/path/to/output.vcf"
+
+with open(input_vcf, "r") as inf, open(output_vcf, "w") as outf:
+    sso.sso_genotype(bam_string=input_bam,
+                     vcf_in=inf,
+                     vcf_out=outf,
+                     min_aligned=20,
+                     split_weight=1,
+                     disc_weight=1,
+                     num_samp=1000000,
+                     lib_info_path=library_info,
+                     debug=False,
+                     alignment_outpath=None,
+                     ref_fasta=None,
+                     sum_quals=False,
+                     max_reads=1000,
+                     cores=2,
+                     batch_size=1000)
 
 # Results will be inside the /path/to/output.vcf file
 ```
@@ -91,7 +141,7 @@ Requirements:
 
     git clone https://github.com/hall-lab/svtyper.git
     cd svtyper
-    conda create --channel bioconda --name mycenv pysam numpy scipy # type 'y' when prompted with "proceed ([y]/n)?"
+    conda create --channel bioconda --name mycenv pysam numpy scipy cytoolz # type 'y' when prompted with "proceed ([y]/n)?"
     source activate mycenv
     pip install -e .
     <add, edit, or delete code>
@@ -135,3 +185,5 @@ http://www.nature.com/nmeth/journal/vaop/ncurrent/full/nmeth.3505.html
 [4]: https://conda.io/docs/index.html
 [5]: https://docs.continuum.io/anaconda/
 [6]: https://conda.io/miniconda.html
+[7]: https://github.com/pytoolz/cytoolz
+[8]: https://docs.python.org/2/library/multiprocessing.html
