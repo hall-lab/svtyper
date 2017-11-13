@@ -89,7 +89,7 @@ def logit(msg):
 # ==================================================
 
 def is_lsf_job():
-    rv = True if 'LSB_JOBID' in os.environ else False
+    rv = 'LSB_JOBID' in os.environ
     return rv
 
 @contextlib.contextmanager

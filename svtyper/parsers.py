@@ -357,7 +357,7 @@ class Variant(object):
 
     def is_valid_svtype(self):
         svtype = self.get_svtype()
-        flag = True if svtype in ('BND', 'DEL', 'DUP', 'INV') else False
+        flag = svtype in ('BND', 'DEL', 'DUP', 'INV')
         return flag
 
 class Genotype(object):

@@ -400,7 +400,7 @@ def tally_variant_read_fragments(split_slop, min_aligned, breakpoint, sam_fragme
     return counts
 
 def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
-    is_dup = True if breakpoint['svtype'] == 'DUP' else False
+    is_dup = breakpoint['svtype'] == 'DUP'
 
     elems = ('ref_seq', 'alt_seq', 'alt_clip', 'ref_span', 'alt_span')
     (ref_seq, alt_seq, alt_clip, ref_span, alt_span) = \

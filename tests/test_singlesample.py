@@ -75,7 +75,7 @@ class TestIntegration(unittest.TestCase):
 #            rv = subprocess.call(cmd, stdout=f)
             rv = subprocess.call(cmd)
 
-        result = True if rv == 0 else False
+        result = rv == 0
         return result
 
 if __name__ == '__main__':
