@@ -344,7 +344,7 @@ class Variant(object):
             fd = sys.stdout
         print(self.get_var_string(), file=fd)
 
-    def is_svtype(self):
+    def has_svtype(self):
         flag = True
         try:
             svtype = self.get_info('SVTYPE')

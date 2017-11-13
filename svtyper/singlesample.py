@@ -129,7 +129,7 @@ def collect_breakpoints(vcf):
     for vline in vcf_variants(vcf.filename):
         v = vline.rstrip().split('\t')
         variant = Variant(v, vcf)
-        if not variant.is_svtype(): continue
+        if not variant.has_svtype(): continue
         if not variant.is_valid_svtype(): continue
         brkpts = vcf.get_variant_breakpoints(variant)
         if brkpts is None: continue
@@ -590,7 +590,7 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
         if not sum_quals:
             variant.qual = 0
 
-        if not variant.is_svtype():
+        if not variant.has_svtype():
             msg = ('Warning: SVTYPE missing '
                    'at variant %s. '
                    'Skipping.\n') % (variant.var_id)
@@ -661,7 +661,7 @@ def apply_genotypes_to_vcf(src_vcf, out_vcf, genotypes, sample, sum_quals):
         if not sum_quals:
             variant.qual = 0
 
-        if not variant.is_svtype():
+        if not variant.has_svtype():
             msg = ('Warning: SVTYPE missing '
                    'at variant %s. '
                    'Skipping.\n') % (variant.var_id)
