@@ -116,7 +116,8 @@ class Vcf(object):
     def sample_to_col(self, sample):
         return self.sample_list.index(sample) + 9
 
-    def _init_bnd_breakpoint_func(self):
+    @staticmethod
+    def _init_bnd_breakpoint_func():
         bnd_cache = {}
 
         def _get_bnd_breakpoints(variant):
@@ -161,7 +162,8 @@ class Vcf(object):
          
         return _get_bnd_breakpoints
 
-    def _default_get_breakpoints(self, variant):
+    @staticmethod
+    def _default_get_breakpoints(variant):
         chromA = variant.chrom
         chromB = variant.chrom
         posA = variant.pos
