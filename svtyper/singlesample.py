@@ -246,8 +246,8 @@ def gather_split_read_evidence(sam_fragment, breakpoint, split_slop, min_aligned
     (ref_seq, alt_seq, alt_clip) = (0, 0, 0)
 
     elems = ('chrom', 'pos', 'ci', 'is_reverse')
-    (chromA, posA, ciA, o1_is_reverse) = tuple(breakpoint['A'][i] for i in elems)
-    (chromB, posB, ciB, o2_is_reverse) = tuple(breakpoint['B'][i] for i in elems)
+    (chromA, posA, ciA, o1_is_reverse) = [ breakpoint['A'][i] for i in elems ]
+    (chromB, posB, ciB, o2_is_reverse) = [ breakpoint['B'][i] for i in elems ]
 
     # get reference sequences
     for read in sam_fragment.primary_reads:
@@ -280,8 +280,8 @@ def gather_paired_end_evidence(fragment, breakpoint, min_aligned):
     ref_ciB = [0,0]
 
     elems = ('chrom', 'pos', 'ci', 'is_reverse')
-    (chromA, posA, ciA, o1_is_reverse) = tuple(breakpoint['A'][i] for i in elems)
-    (chromB, posB, ciB, o2_is_reverse) = tuple(breakpoint['B'][i] for i in elems)
+    (chromA, posA, ciA, o1_is_reverse) = [ breakpoint['A'][i] for i in elems ]
+    (chromB, posB, ciB, o2_is_reverse) = [ breakpoint['B'][i] for i in elems ]
     svtype = breakpoint['svtype']
 
     # tally spanning alternate pairs
@@ -404,7 +404,7 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
 
     elems = ('ref_seq', 'alt_seq', 'alt_clip', 'ref_span', 'alt_span')
     (ref_seq, alt_seq, alt_clip, ref_span, alt_span) = \
-        tuple(counts[i] for i in elems)
+        [counts[i] for i in elems]
 
     # pre-calculations
     alt_splitters = alt_seq + alt_clip
