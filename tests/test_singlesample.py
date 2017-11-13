@@ -34,7 +34,7 @@ class TestIntegration(unittest.TestCase):
                            cores=None,
                            batch_size=1000)
 
-        fail_msg = "did not file output vcf '{}' after running sv_genotype".format(out_vcf)
+        fail_msg = "did not find output vcf '{}' after running sv_genotype".format(out_vcf)
         self.assertTrue(os.path.exists(out_vcf), fail_msg)
 
         fail_msg = ("output vcf '{}' "
@@ -59,7 +59,7 @@ class TestIntegration(unittest.TestCase):
                            cores=1,
                            batch_size=1000)
 
-        fail_msg = "did not file output vcf '{}' after running sv_genotype".format(out_vcf)
+        fail_msg = "did not find output vcf '{}' after running sv_genotype".format(out_vcf)
         self.assertTrue(os.path.exists(out_vcf), fail_msg)
 
         fail_msg = ("output vcf '{}' "
