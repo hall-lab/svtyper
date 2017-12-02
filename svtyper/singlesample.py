@@ -1,6 +1,5 @@
 from __future__ import print_function
 import json, sys, os, math, argparse, time
-from itertools import chain
 import multiprocessing as mp
 
 from cytoolz.itertoolz import partition_all
@@ -162,10 +161,10 @@ def count_reads_in_region(region, bam):
 
 def get_reads_iterator(region, bam):
     (sample_name, chrom, pos, left_pos, right_pos) = region
-    iterator = bam.fetch(chrom, left_pos, right_pos)
+    iterator = bam.fetch(chrom, start=left_pos, stop=right_pos)
     return iterator
 
-def retrieve_reads_from_db(bam, variant_id, regions, max_reads):
+def is_over_threshold(bam, variant_id, regions, max_reads):
     over_threshold = False
     (regionA, regionB) = regions
     (countA, countB) = ( count_reads_in_region(regionA, bam), count_reads_in_region(regionB, bam) )
@@ -182,27 +181,26 @@ def retrieve_reads_from_db(bam, variant_id, regions, max_reads):
                         countB,
                 )
         logit(msg)
-        return (over_threshold, [])
-
-    reads_generator = chain(
-        get_reads_iterator(regionA, bam),
-        get_reads_iterator(regionB, bam)
-    )
-    return (over_threshold, reads_generator)
+    return over_threshold
 
 def gather_reads(bam, variant_id, regions, library_data, active_libs, max_reads):
     fragment_dict = {}
-    (over_threshold, reads) = retrieve_reads_from_db(bam, variant_id, regions, max_reads)
+    over_threshold = is_over_threshold(bam, variant_id, regions, max_reads)
 
-    for read in reads:
-        if read.is_unmapped or read.is_duplicate: continue
-        lib = library_data[read.get_tag('RG')]
-        if lib.name not in active_libs: continue
-        if read.query_name in fragment_dict:
-            fragment_dict[read.query_name].add_read(read)
-        else:
+    if over_threshold:
+        return (fragment_dict, over_threshold)
+
+    for region in regions:
+        for read in get_reads_iterator(region, bam):
+            if read.is_unmapped or read.is_duplicate: continue
             lib = library_data[read.get_tag('RG')]
-            fragment_dict[read.query_name] = SamFragment(read, lib)
+            if lib.name not in active_libs: continue
+            if read.query_name in fragment_dict:
+                fragment_dict[read.query_name].add_read(read)
+            else:
+                lib = library_data[read.get_tag('RG')]
+                fragment_dict[read.query_name] = SamFragment(read, lib)
+
     return (fragment_dict, over_threshold)
 
 def blank_genotype_result():
