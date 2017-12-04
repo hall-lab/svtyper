@@ -226,10 +226,12 @@ def blank_genotype_result():
     }
 
 def make_empty_genotype_result(variant_id, sample_name):
+    gt = blank_genotype_result()
+    gt['DP'] = '.'
     return {
         'variant.id' : variant_id,
         'sample.name' : sample_name,
-        'genotype' : {}
+        'genotype' : gt
     }
 
 def make_detailed_empty_genotype_result(variant_id, sample_name):
