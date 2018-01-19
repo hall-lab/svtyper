@@ -469,10 +469,7 @@ def sv_genotype(bam_string,
                 if gt_sum > 0:
                     gt_sum_log = math.log(gt_sum, 10)
                     sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
-                    if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
-                        phred_gq = 200
-                    else:
-                        phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
+                    phred_gq = min(-10 * (second_best[1] - best[1]), 200)
                     var.genotype(sample.name).set_format('GQ', int(phred_gq))
                     var.genotype(sample.name).set_format('SQ', sample_qual)
                     var.qual += sample_qual
