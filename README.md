@@ -20,7 +20,7 @@ Requirements:
 
     pip install git+https://github.com/hall-lab/svtyper.git
 
-`svtyper` depends on [pysam][0] _(version 0.8.1 or newer)_, [numpy][1], and [scipy][2]; `svtyper-sso` additionally depends on [cytoolz][7]. If the dependencies aren't already available on your system, `pip` will attempt to download and install them.
+`svtyper` depends on [pysam][0] _(version 0.12.0 or newer)_, [numpy][1], and [scipy][2]; `svtyper-sso` additionally depends on [cytoolz][7]. If the dependencies aren't already available on your system, `pip` will attempt to download and install them.
 
 ## `svtyper` vs `svtyper-sso`
 
