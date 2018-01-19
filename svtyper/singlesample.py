@@ -413,7 +413,8 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
 
     # the actual bayesian calculation and decision
     gt_lplist = bayes_gt(QR, QA, is_dup)
-    gt_idx = gt_lplist.index(max(gt_lplist))
+    best, second_best = sorted([ (i, e) for i, e in enumerate(gt_lplist) ], key=lambda(x): x[1], reverse=True)[0:2]
+    gt_idx = best[0]
 
     # print log probabilities of homref, het, homalt
     if debug:
@@ -450,10 +451,7 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
     if gt_sum > 0:
         gt_sum_log = math.log(gt_sum, 10)
         sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
-        if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
-            phred_gq = 200
-        else:
-            phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
+        phred_gq = min(-10 * (second_best[1] - best[1]), 200)
         result['formats']['GQ'] = int(phred_gq)
         result['formats']['SQ'] = sample_qual
         result['qual'] += sample_qual

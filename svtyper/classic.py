@@ -433,7 +433,8 @@ def sv_genotype(bam_string,
                 QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
                 QA = int(split_weight * alt_splitters) + int(disc_weight * alt_span)
                 gt_lplist = bayes_gt(QR, QA, is_dup)
-                gt_idx = gt_lplist.index(max(gt_lplist))
+                best, second_best = sorted([ (i, e) for i, e in enumerate(gt_lplist) ], key=lambda(x): x[1], reverse=True)[0:2]
+                gt_idx = best[0]
 
                 # print log probabilities of homref, het, homalt
                 if debug:
@@ -468,10 +469,7 @@ def sv_genotype(bam_string,
                 if gt_sum > 0:
                     gt_sum_log = math.log(gt_sum, 10)
                     sample_qual = abs(-10 * (gt_lplist[0] - gt_sum_log)) # phred-scaled probability site is non-reference in this sample
-                    if 1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log) == 0:
-                        phred_gq = 200
-                    else:
-                        phred_gq = abs(-10 * math.log(1 - (10**gt_lplist[gt_idx] / 10**gt_sum_log), 10))
+                    phred_gq = min(-10 * (second_best[1] - best[1]), 200)
                     var.genotype(sample.name).set_format('GQ', int(phred_gq))
                     var.genotype(sample.name).set_format('SQ', sample_qual)
                     var.qual += sample_qual
