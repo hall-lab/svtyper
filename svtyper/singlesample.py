@@ -413,7 +413,8 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
 
     # the actual bayesian calculation and decision
     gt_lplist = bayes_gt(QR, QA, is_dup)
-    gt_idx = gt_lplist.index(max(gt_lplist))
+    best, second_best = sorted([ (i, e) for i, e in enumerate(gt_lplist) ], key=lambda(x): x[1], reverse=True)[0:2]
+    gt_idx = best[0]
 
     # print log probabilities of homref, het, homalt
     if debug:
