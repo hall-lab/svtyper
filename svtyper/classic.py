@@ -138,13 +138,14 @@ def sv_genotype(bam_string,
         sys.stderr.write('Warning: VCF not found.\n')
 
     # build the sample libraries, either from the lib_info JSON or empirically from the BAMs
+    if lib_info is not None:
+        sys.stderr.write('Reading library metrics from %s...' % lib_info_path)
     sample_list = list()
     for i in xrange(len(bam_list)):
         if lib_info is None:
             sys.stderr.write('Calculating library metrics from %s...' % bam_list[i].filename)
             sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
         else:
-            sys.stderr.write('Reading library metrics from %s...' % lib_info_path)
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
 
         sample.set_exp_seq_depth(min_aligned)
