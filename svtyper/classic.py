@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import logging
 import pysam
 import json
 import argparse, sys, os.path
@@ -35,6 +36,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
     parser.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--verbose', action='store_true', default=False, help='Report status updates')
 
     # parse the arguments
     args = parser.parse_args()
@@ -141,16 +143,16 @@ def sv_genotype(bam_string,
     sample_list = list()
     for i in xrange(len(bam_list)):
         if lib_info is None:
-            sys.stderr.write('Calculating library metrics from %s...' % bam_list[i].filename)
+            logging.info('Calculating library metrics from %s...' % bam_list[i].filename)
             sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
         else:
-            sys.stderr.write('Reading library metrics from %s...' % lib_info_path)
+            logging.info('Reading library metrics from %s...' % lib_info_path)
             sample = Sample.from_lib_info(bam_list[i], lib_info, min_lib_prevalence)
 
         sample.set_exp_seq_depth(min_aligned)
         sample.set_exp_spanning_depth(min_aligned)
         sample_list.append(sample)
-    sys.stderr.write(' done\n')
+    logging.info('done')
 
     # diagnostic dump of relevant BAM reads
     if alignment_outpath is not None:
@@ -162,11 +164,11 @@ def sv_genotype(bam_string,
 
     # write the JSON for each sample's libraries
     if lib_info_path is not None and not os.path.isfile(lib_info_path):
-        sys.stderr.write('Writing library metrics to %s...' % lib_info_path)
+        logging.info('Writing library metrics to %s...' % lib_info_path)
         lib_info_file = open(lib_info_path, 'w')
         write_sample_json(sample_list, lib_info_file)
         lib_info_file.close()
-        sys.stderr.write(' done\n')
+        logging.info('done')
 
     # quit early if VCF absent
     if vcf_in is None:
@@ -518,12 +520,21 @@ def sv_genotype(bam_string,
 
     return
 
+def set_up_logging(verbose):
+    level = logging.WARNING
+    if verbose:
+        level = logging.INFO
+
+    logging.basicConfig(format='%(message)s', level=level)
+
 # --------------------------------------
 # main function
 
 def main():
     # parse the command line args
     args = get_args()
+
+    set_up_logging(args.verbose)
 
     if args.split_bam is not None:
         sys.stderr.write('Warning: --split_bam (-S) is deprecated. Ignoring %s.\n' % args.split_bam)
