@@ -427,11 +427,16 @@ def sv_genotype(bam_string,
                 alt_span = 0
                 ref_span = 0
 
+            if alt_span + alt_seq == 0 and alt_clip > 0:
+                # discount any SV that's only supported by clips.
+                alt_clip = 0
+
             if ref_seq + alt_seq + ref_span + alt_span + alt_clip > 0:
                 # get bayesian classifier
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
-                alt_splitters = alt_seq + alt_clip
+
+                alt_splitters = alt_seq + alt_clip / 3.0
                 QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
                 QA = int(split_weight * alt_splitters) + int(disc_weight * alt_span)
                 gt_lplist = bayes_gt(QR, QA, is_dup)
