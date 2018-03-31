@@ -436,7 +436,7 @@ def sv_genotype(bam_string,
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
 
-                alt_splitters = alt_seq + alt_clip / 3.0
+                alt_splitters = alt_seq + alt_clip
                 QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
                 QA = int(split_weight * alt_splitters) + int(disc_weight * alt_span)
                 gt_lplist = bayes_gt(QR, QA, is_dup)
