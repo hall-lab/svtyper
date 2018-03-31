@@ -517,6 +517,10 @@ def sv_genotype(bam_string,
             var2.genotype = var.genotype
             vcf_out.write(var2.get_var_string() + '\n')
 
+    # throw warning if we've lost unpaired breakends
+    if True:
+        logging.warning('Unpaired breakends found in file. These will not be present in output.')
+
     # close the files
     vcf_in.close()
     vcf_out.close()
