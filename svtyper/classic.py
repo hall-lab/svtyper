@@ -427,10 +427,15 @@ def sv_genotype(bam_string,
                 alt_span = 0
                 ref_span = 0
 
+            if alt_span + alt_seq == 0 and alt_clip > 0:
+                # discount any SV that's only supported by clips.
+                alt_clip = 0
+
             if ref_seq + alt_seq + ref_span + alt_span + alt_clip > 0:
                 # get bayesian classifier
                 if var.info['SVTYPE'] == "DUP": is_dup = True
                 else: is_dup = False
+
                 alt_splitters = alt_seq + alt_clip
                 QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
                 QA = int(split_weight * alt_splitters) + int(disc_weight * alt_span)
@@ -511,6 +516,10 @@ def sv_genotype(bam_string,
             var2.active_formats = var.active_formats
             var2.genotype = var.genotype
             vcf_out.write(var2.get_var_string() + '\n')
+
+    # throw warning if we've lost unpaired breakends
+    if True:
+        logging.warning('Unpaired breakends found in file. These will not be present in output.')
 
     # close the files
     vcf_in.close()

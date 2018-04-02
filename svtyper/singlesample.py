@@ -387,6 +387,9 @@ def tally_variant_read_fragments(split_slop, min_aligned, breakpoint, sam_fragme
     if alt_span < 0.5 and (alt_seq + alt_clip) >= 1:
         alt_span = 0
         ref_span = 0
+    if alt_span + alt_seq == 0 and alt_clip > 0:
+        # discount any SV that's only supported by clips.
+        alt_clip = 0
 
     counts = { 'ref_seq' : ref_seq, 'alt_seq' : alt_seq,
                'ref_span' : ref_span, 'alt_span' : alt_span,

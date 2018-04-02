@@ -24,7 +24,7 @@ Requirements:
 
 ## `svtyper` vs `svtyper-sso`
 
-`svtyper` is the original implementation of the genotyping algorithm, and works with multiple samples.  `svtyper-sso` is an alternative implementation of `svtyper` that is optimized for genotyping a single sample.  `svtyper-sso` is a parallelized implementation of `svtyper` that takes advantage of multiple CPU cores via the [multiprocessing][8] module. `svtyper-sso` can offer a 2x or more speedup (depending on how many CPU cores used) in genotyping a single sample.
+`svtyper` is the original implementation of the genotyping algorithm, and works with multiple samples.  `svtyper-sso` is an alternative implementation of `svtyper` that is optimized for genotyping a single sample.  `svtyper-sso` is a parallelized implementation of `svtyper` that takes advantage of multiple CPU cores via the [multiprocessing][8] module. `svtyper-sso` can offer a 2x or more speedup (depending on how many CPU cores used) in genotyping a single sample. **_NOTE: svtyper-sso is not yet stable. There are minor logging differences between the two and svtyper-sso may exit with an error prematurely when processing CRAM files._**
 
 ## Example Usage
 
