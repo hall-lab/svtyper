@@ -8,6 +8,12 @@ from svtyper.statistics import mean, stdev, median, upper_mad
 # ==================================================
 # VCF parsing tools
 # ==================================================
+def confidence_interval(var, tag, alt_tag, max_ci_dist):
+    ci = map(int, var.info[tag].split(','))
+    if ci[1] - ci[0] > max_ci_dist:
+        return map(int, var.info[alt_tag].split(','))
+    return ci
+
 
 class Vcf(object):
     def __init__(self):
@@ -120,7 +126,7 @@ class Vcf(object):
     def _init_bnd_breakpoint_func():
         bnd_cache = {}
 
-        def _get_bnd_breakpoints(variant):
+        def _get_bnd_breakpoints(variant, max_ci_dist):
             if variant.info['MATEID'] in bnd_cache:
                 var2 = variant
                 var = bnd_cache[variant.info['MATEID']]
@@ -129,8 +135,8 @@ class Vcf(object):
                 posA = var.pos
                 posB = var2.pos
                 # confidence intervals
-                ciA = map(int, var.info['CIPOS'].split(','))
-                ciB = map(int, var2.info['CIPOS'].split(','))
+                ciA = confidence_interval(var, 'CIPOS', 'CIPOS95', max_ci_dist)
+                ciB = confidence_interval(var2, 'CIPOS', 'CIPOS95', max_ci_dist)
 
                 # infer the strands from the alt allele
                 if var.alt[-1] == '[' or var.alt[-1] == ']':
@@ -163,14 +169,14 @@ class Vcf(object):
         return _get_bnd_breakpoints
 
     @staticmethod
-    def _default_get_breakpoints(variant):
+    def _default_get_breakpoints(variant, max_ci_dist):
         chromA = variant.chrom
         chromB = variant.chrom
         posA = variant.pos
         posB = int(variant.get_info('END'))
         # confidence intervals
-        ciA = map(int, variant.info['CIPOS'].split(','))
-        ciB = map(int, variant.info['CIEND'].split(','))
+        ciA = confidence_interval(variant, 'CIPOS', 'CIPOS95', max_ci_dist)
+        ciB = confidence_interval(variant, 'CIEND', 'CIEND95', max_ci_dist)
         svtype = variant.get_svtype()
         if svtype == 'DEL':
             var_length = posB - posA
@@ -202,7 +208,7 @@ class Vcf(object):
 
         return breakpoints
 
-    def get_variant_breakpoints(self, variant):
+    def get_variant_breakpoints(self, variant, max_ci_dist):
         if self._bnd_breakpoint_func is None:
             func = self._init_bnd_breakpoint_func()
             self._bnd_breakpoint_func = func
@@ -210,9 +216,9 @@ class Vcf(object):
         breakpoints = None
         if variant.get_svtype() == 'BND':
             func = self._bnd_breakpoint_func
-            breakpoints = func(variant)
+            breakpoints = func(variant, max_ci_dist)
         else:
-            breakpoints = self._default_get_breakpoints(variant)
+            breakpoints = self._default_get_breakpoints(variant, max_ci_dist)
 
         return breakpoints
 

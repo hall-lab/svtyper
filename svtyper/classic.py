@@ -9,7 +9,7 @@ from argparse import RawTextHelpFormatter
 
 import svtyper.version
 
-from svtyper.parsers import Vcf, Variant, Sample
+from svtyper.parsers import Vcf, Variant, Sample, confidence_interval
 from svtyper.utils import *
 from svtyper.statistics import bayes_gt
 
@@ -32,6 +32,7 @@ description: Compute genotype of structural variants based on breakpoint depth")
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('-q', '--sum_quals', action='store_true', required=False, help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
     parser.add_argument('--max_reads', metavar='INT', type=int, default=None, required=False, help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions, default: unlimited)')
+    parser.add_argument('--max_ci_dist', metavar='INT', type=int, default=1e10, required=False, help='maximum size of a confidence interval before 95% CI is used intead (default: 1e10)')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
@@ -115,7 +116,8 @@ def sv_genotype(bam_string,
                 alignment_outpath,
                 ref_fasta,
                 sum_quals,
-                max_reads):
+                max_reads,
+                max_ci_dist):
 
     # parse the comma separated inputs
     bam_list = []
@@ -236,8 +238,8 @@ def sv_genotype(bam_string,
                 posA = var.pos
                 posB = var2.pos
                 # confidence intervals
-                ciA = map(int, var.info['CIPOS'].split(','))
-                ciB = map(int, var2.info['CIPOS'].split(','))
+                ciA = confidence_interval(var, 'CIPOS', 'CIPOS95', max_ci_dist)
+                ciB = confidence_interval(var2, 'CIPOS', 'CIPOS95', max_ci_dist)
 
                 # infer the strands from the alt allele
                 if var.alt[-1] == '[' or var.alt[-1] == ']':
@@ -259,8 +261,8 @@ def sv_genotype(bam_string,
             posA = var.pos
             posB = int(var.get_info('END'))
             # confidence intervals
-            ciA = map(int, var.info['CIPOS'].split(','))
-            ciB = map(int, var.info['CIEND'].split(','))
+            ciA = confidence_interval(var, 'CIPOS', 'CIPOS95', max_ci_dist)
+            ciB = confidence_interval(var, 'CIEND', 'CIEND95', max_ci_dist)
             if svtype == 'DEL':
                 var_length = posB - posA
                 o1_is_reverse, o2_is_reverse =  False, True
@@ -561,7 +563,8 @@ def main():
                 args.alignment_outpath,
                 args.ref_fasta,
                 args.sum_quals,
-                args.max_reads)
+                args.max_reads,
+                args.max_ci_dist)
 
 # --------------------------------------
 # command-line/console entrypoint
