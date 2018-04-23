@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 
-import argparse, sys, copy, gzip, os
-import math, time, re
+import argparse
+import sys
+import copy
+import gzip
+import os
+import math
+import time
+import re
 import numpy as np
 from scipy import stats
 from collections import Counter
@@ -15,19 +21,31 @@ __date__ = "$Date: 2014-04-28 14:31 $"
 # --------------------------------------
 # define functions
 
+
 def get_args():
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter, description="\
 sv_classifier.py\n\
 author: " + __author__ + "\n\
 version: " + __version__ + "\n\
 description: classify structural variants")
-    parser.add_argument('-i', '--input', metavar='VCF', dest='vcf_in', type=argparse.FileType('r'), default=None, help='VCF input [stdin]')
-    parser.add_argument('-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'), required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
-    parser.add_argument('-e', '--exclude', metavar='FILE', dest='exclude', type=argparse.FileType('r'), required=False, default=None, help='list of samples to exclude from classification algorithms')
-    parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path', type=str, default=None, help='BED file of annotated elements')
-    parser.add_argument('-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float, default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
-    parser.add_argument('-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float, default=1.0, help='minimum slope absolute value of regression line to classify as DEL or DUP[1.0]')
-    parser.add_argument('-r', '--rsquared_threshold', metavar='FLOAT', dest='rsquared_threshold', type=float, default=0.2, help='minimum R^2 correlation value of regression line to classify as DEL or DUP [0.2]')
+    parser.add_argument('-i', '--input', metavar='VCF', dest='vcf_in',
+                        type=argparse.FileType('r'), default=None, help='VCF input [stdin]')
+    parser.add_argument(
+        '-g', '--gender', metavar='FILE', dest='gender', type=argparse.FileType('r'),
+                        required=True, default=None, help='tab delimited file of sample genders (male=1, female=2)\nex: SAMPLE_A\t2')
+    parser.add_argument('-e', '--exclude', metavar='FILE', dest='exclude', type=argparse.FileType(
+        'r'), required=False, default=None, help='list of samples to exclude from classification algorithms')
+    parser.add_argument('-a', '--annotation', metavar='BED', dest='ae_path',
+                        type=str, default=None, help='BED file of annotated elements')
+    parser.add_argument(
+        '-f', '--fraction', metavar='FLOAT', dest='f_overlap', type=float,
+                        default=0.9, help='fraction of reciprocal overlap to apply annotation to variant [0.9]')
+    parser.add_argument(
+        '-s', '--slope_threshold', metavar='FLOAT', dest='slope_threshold', type=float,
+                        default=1.0, help='minimum slope absolute value of regression line to classify as DEL or DUP[1.0]')
+    parser.add_argument(
+        '-r', '--rsquared_threshold', metavar='FLOAT', dest='rsquared_threshold', type=float,
+                        default=0.2, help='minimum R^2 correlation value of regression line to classify as DEL or DUP [0.2]')
 
     # parse the arguments
     args = parser.parse_args()
@@ -42,7 +60,9 @@ description: classify structural variants")
     # send back the user input
     return args
 
+
 class Vcf(object):
+
     def __init__(self):
         self.file_format = 'VCFv4.2'
         # self.fasta = fasta
@@ -60,15 +80,15 @@ class Vcf(object):
             elif line.split('=')[0] == '##reference':
                 self.reference = line.rstrip().split('=')[1]
             elif line.split('=')[0] == '##INFO':
-                a = line[line.find('<')+1:line.find('>')]
+                a = line[line.find('<') + 1:line.find('>')]
                 r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
                 self.add_info(*[b.split('=')[1] for b in r.findall(a)])
             elif line.split('=')[0] == '##ALT':
-                a = line[line.find('<')+1:line.find('>')]
+                a = line[line.find('<') + 1:line.find('>')]
                 r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
                 self.add_alt(*[b.split('=')[1] for b in r.findall(a)])
             elif line.split('=')[0] == '##FORMAT':
-                a = line[line.find('<')+1:line.find('>')]
+                a = line[line.find('<') + 1:line.find('>')]
                 r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
                 self.add_format(*[b.split('=')[1] for b in r.findall(a)])
             elif line[0] == '#' and line[1] != '#':
@@ -78,10 +98,10 @@ class Vcf(object):
     def get_header(self):
         header = '\n'.join(['##fileformat=' + self.file_format,
                             '##fileDate=' + time.strftime('%Y%m%d'),
-                            '##reference=' + self.reference] + \
-                           [i.hstring for i in self.info_list] + \
-                           [a.hstring for a in self.alt_list] + \
-                           [f.hstring for f in self.format_list] + \
+                            '##reference=' + self.reference] +
+                           [i.hstring for i in self.info_list] +
+                           [a.hstring for a in self.alt_list] +
+                           [f.hstring for f in self.format_list] +
                            ['\t'.join([
                                '#CHROM',
                                'POS',
@@ -91,7 +111,7 @@ class Vcf(object):
                                'QUAL',
                                'FILTER',
                                'INFO',
-                               'FORMAT'] + \
+                               'FORMAT'] +
                                       self.sample_list
                                   )])
         return header
@@ -120,6 +140,7 @@ class Vcf(object):
         return self.sample_list.index(sample) + 9
 
     class Info(object):
+
         def __init__(self, id, number, type, desc):
             self.id = str(id)
             self.number = str(number)
@@ -128,18 +149,22 @@ class Vcf(object):
             # strip the double quotes around the string if present
             if self.desc.startswith('"') and self.desc.endswith('"'):
                 self.desc = self.desc[1:-1]
-            self.hstring = '##INFO=<ID=' + self.id + ',Number=' + self.number + ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
+            self.hstring = '##INFO=<ID=' + self.id + ',Number=' + self.number + \
+                ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
 
     class Alt(object):
+
         def __init__(self, id, desc):
             self.id = str(id)
             self.desc = str(desc)
             # strip the double quotes around the string if present
             if self.desc.startswith('"') and self.desc.endswith('"'):
                 self.desc = self.desc[1:-1]
-            self.hstring = '##ALT=<ID=' + self.id + ',Description=\"' + self.desc + '\">'
+            self.hstring = '##ALT=<ID=' + self.id + \
+                ',Description=\"' + self.desc + '\">'
 
     class Format(object):
+
         def __init__(self, id, number, type, desc):
             self.id = str(id)
             self.number = str(number)
@@ -148,9 +173,12 @@ class Vcf(object):
             # strip the double quotes around the string if present
             if self.desc.startswith('"') and self.desc.endswith('"'):
                 self.desc = self.desc[1:-1]
-            self.hstring = '##FORMAT=<ID=' + self.id + ',Number=' + self.number + ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
+            self.hstring = '##FORMAT=<ID=' + self.id + ',Number=' + self.number + \
+                ',Type=' + self.type + ',Description=\"' + self.desc + '\">'
+
 
 class Variant(object):
+
     def __init__(self, var_list, vcf):
         self.chrom = var_list[0]
         self.pos = int(var_list[1])
@@ -168,10 +196,11 @@ class Variant(object):
         self.format_list = vcf.format_list
         self.active_formats = list()
         self.gts = dict()
-        
+
         # fill in empty sample genotypes
         if len(var_list) < 8:
-            sys.stderr.write('\nError: VCF file must have at least 8 columns\n')
+            sys.stderr.write(
+                '\nError: VCF file must have at least 8 columns\n')
             exit(1)
         if len(var_list) < 9:
             var_list.append("GT")
@@ -188,7 +217,8 @@ class Variant(object):
                 self.gts[s] = Genotype(self, s, './.')
 
         self.info = dict()
-        i_split = [a.split('=') for a in var_list[7].split(';')] # temp list of split info column
+        i_split = [a.split('=')
+                           for a in var_list[7].split(';')]  # temp list of split info column
         for i in i_split:
             if len(i) == 1:
                 i.append(True)
@@ -198,7 +228,8 @@ class Variant(object):
         if field in [i.id for i in self.info_list]:
             self.info[field] = value
         else:
-            sys.stderr.write('\nError: invalid INFO field, \"' + field + '\"\n')
+            sys.stderr.write(
+                '\nError: invalid INFO field, \"' + field + '\"\n')
             exit(1)
 
     def get_info(self, field):
@@ -207,11 +238,12 @@ class Variant(object):
     def get_info_string(self):
         i_list = list()
         for info_field in self.info_list:
-            if info_field.id in self.info.keys():
+            if info_field.id in list(self.info.keys()):
                 if info_field.type == 'Flag':
                     i_list.append(info_field.id)
                 else:
-                    i_list.append('%s=%s' % (info_field.id, self.info[info_field.id]))
+                    i_list.append(
+                        '%s=%s' % (info_field.id, self.info[info_field.id]))
         return ';'.join(i_list)
 
     def get_format_string(self):
@@ -225,10 +257,11 @@ class Variant(object):
         if sample_name in self.sample_list:
             return self.gts[sample_name]
         else:
-            sys.stderr.write('\nError: invalid sample name, \"' + sample_name + '\"\n')
+            sys.stderr.write(
+                '\nError: invalid sample name, \"' + sample_name + '\"\n')
 
     def get_var_string(self):
-        s = '\t'.join(map(str,[
+        s = '\t'.join(map(str, [
             self.chrom,
             self.pos,
             self.var_id,
@@ -238,11 +271,14 @@ class Variant(object):
             self.filter,
             self.get_info_string(),
             self.get_format_string(),
-            '\t'.join(self.genotype(s).get_gt_string() for s in self.sample_list)
+            '\t'.join(self.genotype(s).get_gt_string()
+                      for s in self.sample_list)
         ]))
         return s
 
+
 class Genotype(object):
+
     def __init__(self, variant, sample_name, gt):
         self.format = dict()
         self.variant = variant
@@ -254,9 +290,11 @@ class Genotype(object):
             if field not in self.variant.active_formats:
                 self.variant.active_formats.append(field)
                 # sort it to be in the same order as the format_list in header
-                self.variant.active_formats.sort(key=lambda x: [f.id for f in self.variant.format_list].index(x))
+                self.variant.active_formats.sort(
+                    key=lambda x: [f.id for f in self.variant.format_list].index(x))
         else:
-            sys.stderr.write('\nError: invalid FORMAT field, \"' + field + '\"\n')
+            sys.stderr.write(
+                '\nError: invalid FORMAT field, \"' + field + '\"\n')
             exit(1)
 
     def get_format(self, field):
@@ -272,23 +310,28 @@ class Genotype(object):
                     g_list.append(self.format[f])
             else:
                 g_list.append('.')
-        return ':'.join(map(str,g_list))
+        return ':'.join(map(str, g_list))
 
 # http://stackoverflow.com/questions/8930370/where-can-i-find-mad-mean-absolute-deviation-in-scipy
+
+
 def mad(arr):
     """ Median Absolute Deviation: a "Robust" version of standard deviation.
         Indices variabililty of the sample.
-        https://en.wikipedia.org/wiki/Median_absolute_deviation 
+        https://en.wikipedia.org/wiki/Median_absolute_deviation
     """
-    arr = np.ma.array(arr).compressed() # should be faster to not use masked arrays.
+    arr = np.ma.array(arr).compressed()
+                      # should be faster to not use masked arrays.
     med = np.median(arr)
     return np.median(np.abs(arr - med))
 
 # test whether variant has read depth support by regression
+
+
 def has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir=None):
     # slope_threshold = 0.1
     # rsquared_threshold = 0.1
-    
+
     if 'CN' in var.active_formats:
         # allele balance list
         ab_list = []
@@ -315,25 +358,27 @@ def has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_
         rd = np.array([ab_list, rd_list])
 
         # remove missing genotypes
-        rd = rd[:, rd[0]!=-1]
+        rd = rd[:, rd[0] != -1]
 
         # ensure non-uniformity in genotype and read depth
-        if len(np.unique(rd[0,:])) > 1 and len(np.unique(rd[1,:])) > 1:
+        if len(np.unique(rd[0, :])) > 1 and len(np.unique(rd[1,:])) > 1:
             # calculate regression
-            (slope, intercept, r_value, p_value, std_err) = stats.linregress(rd)
+            (slope, intercept, r_value, p_value,
+             std_err) = stats.linregress(rd)
             # print slope, intercept, r_value, var.info['SVTYPE'], var.var_id
-
 
             # write the scatterplot to a file
             if writedir is not None:
                 try:
                     os.makedirs(writedir)
-                except OSError as exc: # Python >2.5
+                except OSError as exc:  # Python >2.5
                     if os.path.isdir(writedir):
                         pass
-                    else: raise
+                    else:
+                        raise
 
-                f = open('%s/reg_%s_%s_%sbp.txt' % (writedir, var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+                f = open('%s/reg_%s_%s_%sbp.txt' %
+                         (writedir, var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
                 np.savetxt(f, np.transpose(rd), delimiter='\t')
                 f.close()
 
@@ -350,16 +395,18 @@ def has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_
     return False
 
 # test for read depth support of low frequency variants
+
+
 def has_low_freq_depth_support(var, gender, exclude, writedir=None):
     mad_threshold = 2
-    mad_quorum = 0.5 # this fraction of the pos. genotyped results must meet the mad_threshold
+    mad_quorum = 0.5  # this fraction of the pos. genotyped results must meet the mad_threshold
     absolute_cn_diff = 0.5
-    
+
     hom_ref_cn = []
     het_cn = []
     hom_alt_cn = []
 
-    # determine whether majority of 
+    # determine whether majority of
 
     # if on the sex chromosomes, only compare against the majority sex
     if (var.chrom == 'X' or var.chrom == 'Y'):
@@ -431,21 +478,27 @@ def has_low_freq_depth_support(var, gender, exclude, writedir=None):
     if writedir is not None:
         try:
             os.makedirs(writedir)
-        except OSError as exc: # Python >2.5
+        except OSError as exc:  # Python >2.5
             if os.path.isdir(writedir):
                 pass
-            else: raise
+            else:
+                raise
 
-        f = open('%s/mad_%s_%s_%sbp.txt' % (writedir, var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
+        f = open('%s/mad_%s_%s_%sbp.txt' %
+                 (writedir, var.info['SVTYPE'], var.var_id, var.info['SVLEN']), 'w')
         for cn in hom_ref_cn:
-            f.write('\t'.join(map(str, [0, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
+            f.write(
+                '\t'.join(map(str, [0, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
         for cn in het_cn:
-            f.write('\t'.join(map(str, [1, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
+            f.write(
+                '\t'.join(map(str, [1, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
         for cn in hom_alt_cn:
-            f.write('\t'.join(map(str, [2, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
+            f.write(
+                '\t'.join(map(str, [2, cn, cn_mean, cn_stdev, cn_median, cn_mad])) + '\n')
         f.close()
 
-    # bail after writing out diagnostic info, if no ref samples or all ref samples
+    # bail after writing out diagnostic info, if no ref samples or all ref
+    # samples
     if (len(hom_ref_cn) == 0 or
         len(het_cn + hom_alt_cn) == 0):
         return False
@@ -460,10 +513,11 @@ def has_low_freq_depth_support(var, gender, exclude, writedir=None):
             resid > absolute_cn_diff):
             q += 1
     # check if meets quorum
-    if float(q)/len(het_cn + hom_alt_cn) > mad_quorum:
+    if float(q) / len(het_cn + hom_alt_cn) > mad_quorum:
         return True
     else:
         return False
+
 
 def to_bnd(var):
     var1 = copy.deepcopy(var)
@@ -480,7 +534,7 @@ def to_bnd(var):
     var2.var_id = var.var_id + "_2"
     var1.info['MATEID'] = var2.var_id
     var2.info['MATEID'] = var1.var_id
-    
+
     # update position
     var2.pos = var.info['END']
 
@@ -508,6 +562,7 @@ def to_bnd(var):
         var2.alt = 'N[%s:%s[' % (var.chrom, var.pos)
     return var1, var2
 
+
 def reciprocal_overlap(a, b_list):
     overlap = 0
     b_aggregate = 0
@@ -526,11 +581,12 @@ def reciprocal_overlap(a, b_list):
 
     return min(overlap / (a[1] - a[0]), overlap / b_aggregate)
 
+
 def collapse_bed_records(bed_list):
     bed_list_sorted = sorted(bed_list, key=itemgetter(1))
 
     collapsed_bed_list = []
-    
+
     i = 0
     curr_rec = bed_list_sorted[i]
     while i < len(bed_list_sorted):
@@ -556,6 +612,7 @@ def collapse_bed_records(bed_list):
     # print 'collapsed:', collapsed_bed_list
     return collapsed_bed_list
 
+
 def annotation_intersect(var, ae_dict, threshold):
     best_frac_overlap = 0
     best_feature = ''
@@ -563,7 +620,7 @@ def annotation_intersect(var, ae_dict, threshold):
 
     # dictionary with number of bases of overlap for each class
     class_overlap = {}
-    
+
     # first check for reciprocal overlap
     if var.chrom in ae_dict:
         var_start = var.pos
@@ -586,15 +643,17 @@ def annotation_intersect(var, ae_dict, threshold):
 
         # print class_overlap
         for me_class in class_overlap:
-            class_overlap[me_class] = collapse_bed_records(class_overlap[me_class])
+            class_overlap[me_class] = collapse_bed_records(
+                class_overlap[me_class])
             # print 'class_overlap[me_class]:', class_overlap[me_class]
-            # print 'recip:', reciprocal_overlap([var_start, var_end], class_overlap[me_class])
+            # print 'recip:', reciprocal_overlap([var_start, var_end],
+            # class_overlap[me_class])
 
-            frac_overlap = reciprocal_overlap([var_start, var_end], class_overlap[me_class])
+            frac_overlap = reciprocal_overlap(
+                [var_start, var_end], class_overlap[me_class])
             if frac_overlap > best_frac_overlap:
                 best_frac_overlap = frac_overlap
                 best_feature = me_class
-
 
         if best_frac_overlap >= threshold:
             return best_feature
@@ -602,6 +661,8 @@ def annotation_intersect(var, ae_dict, threshold):
     return None
 
 # primary function
+
+
 def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_threshold, rsquared_threshold):
     vcf_out = sys.stdout
     vcf = Vcf()
@@ -631,7 +692,8 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
                 # write the output header
                 vcf_out.write(vcf.get_header() + '\n')
 
-        # split variant line, quick pre-check if the SVTYPE is BND, and skip if so
+        # split variant line, quick pre-check if the SVTYPE is BND, and skip if
+        # so
         v = line.rstrip().split('\t')
 
         info = v[7].split(';')
@@ -660,7 +722,7 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
                 vcf_out.write(var.get_var_string() + '\n')
                 continue
 
-        # # write to directory
+        # write to directory
         # writedir = 'data/r11.100kb.dup'
 
         # annotate based on read depth
@@ -681,7 +743,9 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
                     vcf_out.write(var.get_var_string() + '\n')
                 else:
                     # has_low_freq_depth_support(var, gender, exclude, writedir + '/low_freq_no_rd')
-                    # has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir + '/low_freq_no_rd')
+                    # has_high_freq_depth_support(var, gender, exclude,
+                    # slope_threshold, rsquared_threshold, writedir +
+                    # '/low_freq_no_rd')
                     for m_var in to_bnd(var):
                         vcf_out.write(m_var.get_var_string() + '\n')
             else:
@@ -692,7 +756,8 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
                     vcf_out.write(var.get_var_string() + '\n')
                 else:
                     # has_high_freq_depth_support(var, gender, exclude, slope_threshold, rsquared_threshold, writedir + '/high_freq_no_rd')
-                    # has_low_freq_depth_support(var, gender, exclude, writedir + '/high_freq_no_rd')
+                    # has_low_freq_depth_support(var, gender, exclude, writedir
+                    # + '/high_freq_no_rd')
                     for m_var in to_bnd(var):
                         vcf_out.write(m_var.get_var_string() + '\n')
     vcf_out.close()
@@ -700,6 +765,7 @@ def sv_classify(vcf_in, gender_file, exclude_file, ae_dict, f_overlap, slope_thr
 
 # --------------------------------------
 # main function
+
 
 def main():
     # parse the command line args
@@ -745,6 +811,6 @@ def main():
 if __name__ == '__main__':
     try:
         sys.exit(main())
-    except IOError, e:
+    except IOError as e:
         if e.errno != 32:  # ignore SIGPIPE
-            raise 
+            raise

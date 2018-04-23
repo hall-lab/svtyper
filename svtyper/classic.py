@@ -11,6 +11,8 @@ import svtyper.version
 
 from svtyper.parsers import Vcf, Variant, Sample
 from svtyper.utils import *
+from svtyper.utils import SamFragment, write_sample_json, prob_mapq
+from svtyper.utils import write_alignment
 from svtyper.statistics import bayes_gt
 
 # --------------------------------------
@@ -22,46 +24,78 @@ svtyper\n\
 author: " + svtyper.version.__author__ + "\n\
 version: " + svtyper.version.__version__ + "\n\
 description: Compute genotype of structural variants based on breakpoint depth")
-    parser.add_argument('-i', '--input_vcf', metavar='FILE', type=argparse.FileType('r'), default=None, help='VCF input (default: stdin)')
-    parser.add_argument('-o', '--output_vcf', metavar='FILE',  type=argparse.FileType('w'), default=sys.stdout, help='output VCF to write (default: stdout)')
-    parser.add_argument('-B', '--bam', metavar='FILE', type=str, required=True, help='BAM or CRAM file(s), comma-separated if genotyping multiple samples')
-    parser.add_argument('-T', '--ref_fasta', metavar='FILE', type=str, required=False, default=None, help='Indexed reference FASTA file (recommended for reading CRAM files)')
-    parser.add_argument('-S', '--split_bam', type=str, required=False, help=argparse.SUPPRESS)
-    parser.add_argument('-l', '--lib_info', metavar='FILE', dest='lib_info_path', type=str, required=False, default=None, help='create/read JSON file of library information')
-    parser.add_argument('-m', '--min_aligned', metavar='INT', type=int, required=False, default=20, help='minimum number of aligned bases to consider read as evidence [20]')
-    parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
-    parser.add_argument('-q', '--sum_quals', action='store_true', required=False, help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
-    parser.add_argument('--max_reads', metavar='INT', type=int, default=None, required=False, help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions, default: unlimited)')
-    parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
-    parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
-    parser.add_argument('-w', '--write_alignment', metavar='FILE', dest='alignment_outpath', type=str, required=False, default=None, help='write relevant reads to BAM file')
-    parser.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('--verbose', action='store_true', default=False, help='Report status updates')
+    parser.add_argument('-i', '--input_vcf', metavar='FILE',
+                        type=argparse.FileType('r'), default=None,
+                        help='VCF input (default: stdin)')
+    parser.add_argument('-o', '--output_vcf', metavar='FILE',
+                        type=argparse.FileType('w'), default=sys.stdout,
+                        help='output VCF to write (default: stdout)')
+    parser.add_argument('-B', '--bam', metavar='FILE',
+                        type=str, required=True,
+                        help='BAM or CRAM file(s), comma-separated if genotyping multiple samples')
+    parser.add_argument('-T', '--ref_fasta', metavar='FILE',
+                        type=str, required=False, default=None,
+                        help='Indexed reference FASTA file (recommended for reading CRAM files)')
+    parser.add_argument('-S', '--split_bam',
+                        type=str, required=False, help=argparse.SUPPRESS)
+    parser.add_argument('-l', '--lib_info', metavar='FILE', dest='lib_info_path',
+                        type=str, required=False, default=None,
+                        help='create/read JSON file of library information')
+    parser.add_argument('-m', '--min_aligned', metavar='INT',
+                        type=int, required=False, default=20,
+                        help='minimum number of aligned bases to consider read as evidence [20]')
+    parser.add_argument('-n', dest='num_samp', metavar='INT',
+                        type=int, required=False, default=1000000,
+                        help='number of reads to sample from BAM file for building insert size distribution [1000000]')
+    parser.add_argument('-q', '--sum_quals', action='store_true', required=False,
+                        help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
+    parser.add_argument('--max_reads', metavar='INT',
+                        type=int, default=None, required=False,
+                        help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions, default: unlimited)')
+    parser.add_argument('--split_weight', metavar='FLOAT',
+                        type=float, required=False, default=1,
+                        help='weight for split reads [1]')
+    parser.add_argument('--disc_weight', metavar='FLOAT',
+                        type=float, required=False, default=1,
+                        help='weight for discordant paired-end reads [1]')
+    parser.add_argument('-w', '--write_alignment', metavar='FILE',
+                        dest='alignment_outpath',
+                        type=str, required=False, default=None,
+                        help='write relevant reads to BAM file')
+    parser.add_argument('--debug', action='store_true',
+                        help=argparse.SUPPRESS)
+    parser.add_argument('--verbose', action='store_true', default=False,
+                        help='Report status updates')
 
     # parse the arguments
     args = parser.parse_args()
 
     # if no input, check if part of pipe and if so, read stdin.
-    if args.input_vcf == None:
+    if args.input_vcf is None:
         if not sys.stdin.isatty():
             args.input_vcf = sys.stdin
 
     # send back the user input
     return args
 
+
 # methods to grab reads from region of interest in BAM file
-def gather_all_reads(sample, chromA, posA, ciA, chromB, posB, ciB, z, max_reads):
+def gather_all_reads(sample, chromA, posA, ciA,
+                     chromB, posB, ciB, z, max_reads):
     # grab batch of reads from both sides of breakpoint
     read_batch = {}
-    read_batch, many = gather_reads(sample, chromA, posA, ciA, z, read_batch, max_reads)
+    read_batch, many = gather_reads(sample, chromA, posA, ciA,
+                                    z, read_batch, max_reads)
     if many:
         return {}, True
 
-    read_batch, many = gather_reads(sample, chromB, posB, ciB, z, read_batch, max_reads)
+    read_batch, many = gather_reads(sample, chromB, posB, ciB,
+                                    z, read_batch, max_reads)
     if many:
         return {}, True
 
     return read_batch, many
+
 
 def gather_reads(sample,
                  chrom, pos, ci,
@@ -76,8 +110,8 @@ def gather_reads(sample,
 
     many = False
     for i, read in enumerate(sample.bam.fetch(chrom,
-                                 max(pos + ci[0] - fetch_flank, 0),
-                                 min(pos + ci[1] + fetch_flank, chrom_length))):
+                                              max(pos + ci[0] - fetch_flank, 0),
+                                              min(pos + ci[1] + fetch_flank, chrom_length))):
         if read.is_unmapped or read.is_duplicate:
             continue
 
@@ -123,12 +157,13 @@ def sv_genotype(bam_string,
         if b.endswith('.bam'):
             bam_list.append(pysam.AlignmentFile(b, mode='rb'))
         elif b.endswith('.cram'):
-            bam_list.append(pysam.AlignmentFile(b, mode='rc', reference_filename=ref_fasta))
+            bam_list.append(pysam.AlignmentFile(b, mode='rc',
+                                                reference_filename=ref_fasta))
         else:
             sys.stderr.write('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % b)
             exit(1)
-            
-    min_lib_prevalence = 1e-3 # only consider libraries that constitute at least this fraction of the BAM
+
+    min_lib_prevalence = 1e-3  # only consider libraries that constitute at least this fraction of the BAM
 
     # parse lib_info_path JSON
     lib_info = None
@@ -141,7 +176,7 @@ def sv_genotype(bam_string,
 
     # build the sample libraries, either from the lib_info JSON or empirically from the BAMs
     sample_list = list()
-    for i in xrange(len(bam_list)):
+    for i in range(len(bam_list)):
         if lib_info is None:
             logging.info('Calculating library metrics from %s...' % bam_list[i].filename)
             sample = Sample.from_bam(bam_list[i], num_samp, min_lib_prevalence)
@@ -178,10 +213,10 @@ def sv_genotype(bam_string,
 
     # set variables for genotyping
     z = 3
-    split_slop = 3 # amount of slop around breakpoint to count splitters
+    split_slop = 3  # amount of slop around breakpoint to count splitters
     in_header = True
     header = []
-    breakend_dict = {} # cache to hold unmatched generic breakends for genotyping
+    breakend_dict = {}  # cache to hold unmatched generic breakends for genotyping
     vcf = Vcf()
 
     # read input VCF
@@ -206,10 +241,9 @@ def sv_genotype(bam_string,
                 # write the output header
                 vcf_out.write(vcf.get_header() + '\n')
 
-
         v = line.rstrip().split('\t')
         var = Variant(v, vcf)
-        var_length = None # var_length should be None except for deletions
+        var_length = None  # var_length should be None except for deletions
         if not sum_quals:
             var.qual = 0
 
@@ -220,7 +254,7 @@ def sv_genotype(bam_string,
             sys.stderr.write('Warning: SVTYPE missing at variant %s. Skipping.\n' % (var.var_id))
             vcf_out.write(var.get_var_string() + '\n')
             continue
-            
+
         # print original line if unsupported svtype
         if svtype not in ('BND', 'DEL', 'DUP', 'INV'):
             sys.stderr.write('Warning: Unsupported SVTYPE at variant %s (%s). Skipping.\n' % (var.var_id, svtype))
@@ -236,16 +270,18 @@ def sv_genotype(bam_string,
                 posA = var.pos
                 posB = var2.pos
                 # confidence intervals
-                ciA = map(int, var.info['CIPOS'].split(','))
-                ciB = map(int, var2.info['CIPOS'].split(','))
+                ciA = list(map(int, var.info['CIPOS'].split(',')))
+                ciB = list(map(int, var2.info['CIPOS'].split(',')))
 
                 # infer the strands from the alt allele
                 if var.alt[-1] == '[' or var.alt[-1] == ']':
                     o1_is_reverse = False
-                else: o1_is_reverse = True
+                else:
+                    o1_is_reverse = True
                 if var2.alt[-1] == '[' or var2.alt[-1] == ']':
                     o2_is_reverse = False
-                else: o2_is_reverse = True
+                else:
+                    o2_is_reverse = True
 
                 # remove the BND from the breakend_dict
                 # to free up memory
@@ -259,23 +295,26 @@ def sv_genotype(bam_string,
             posA = var.pos
             posB = int(var.get_info('END'))
             # confidence intervals
-            ciA = map(int, var.info['CIPOS'].split(','))
-            ciB = map(int, var.info['CIEND'].split(','))
+            ciA = list(map(int, var.info['CIPOS'].split(',')))
+            ciB = list(map(int, var.info['CIEND'].split(',')))
             if svtype == 'DEL':
                 var_length = posB - posA
-                o1_is_reverse, o2_is_reverse =  False, True
+                o1_is_reverse, o2_is_reverse = False, True
             elif svtype == 'DUP':
-                o1_is_reverse, o2_is_reverse =  True, False
+                o1_is_reverse, o2_is_reverse = True, False
             elif svtype == 'INV':
                 o1_is_reverse, o2_is_reverse = False, False
 
         # increment the negative strand values (note position in VCF should be the base immediately left of the breakpoint junction)
-        if o1_is_reverse: posA += 1
-        if o2_is_reverse: posB += 1
+        if o1_is_reverse:
+            posA += 1
+        if o2_is_reverse:
+            posB += 1
 
         for sample in sample_list:
             # grab reads from both sides of breakpoint
-            read_batch, many = gather_all_reads(sample, chromA, posA, ciA, chromB, posB, ciB, z, max_reads)
+            read_batch, many = gather_all_reads(sample, chromA, posA, ciA,
+                                                chromB, posB, ciB, z, max_reads)
             if many:
                 var.genotype(sample.name).set_format('GT', './.')
                 continue
@@ -287,8 +326,8 @@ def sv_genotype(bam_string,
 
             # ref_ciA = ciA
             # ref_ciB = ciB
-            ref_ciA = [0,0]
-            ref_ciB = [0,0]
+            ref_ciA = [0, 0]
+            ref_ciB = [0, 0]
 
             for query_name in sorted(read_batch.keys()):
                 fragment = read_batch[query_name]
@@ -301,8 +340,10 @@ def sv_genotype(bam_string,
 
                 # get reference sequences
                 for read in fragment.primary_reads:
-                    is_ref_seq_A = fragment.is_ref_seq(read, var, chromA, posA, ciA, min_aligned)
-                    is_ref_seq_B = fragment.is_ref_seq(read, var, chromB, posB, ciB, min_aligned)
+                    is_ref_seq_A = fragment.is_ref_seq(read, var,
+                                                       chromA, posA, ciA, min_aligned)
+                    is_ref_seq_B = fragment.is_ref_seq(read, var,
+                                                       chromB, posB, ciB, min_aligned)
                     if (is_ref_seq_A or is_ref_seq_B):
                         p_reference = prob_mapq(read)
                         ref_seq += p_reference
@@ -318,7 +359,8 @@ def sv_genotype(bam_string,
                                                        o1_is_reverse, o2_is_reverse,
                                                        svtype, split_slop)
                     # p_alt = prob_mapq(split.query_left) * prob_mapq(split.query_right)
-                    p_alt = (prob_mapq(split.query_left) * split_lr[0] + prob_mapq(split.query_right) * split_lr[1]) / 2.0
+                    p_alt = (prob_mapq(split.query_left) * split_lr[0] +
+                             prob_mapq(split.query_right) * split_lr[1]) / 2.0
                     if split.is_soft_clip:
                         alt_clip += p_alt
                     else:
@@ -338,7 +380,8 @@ def sv_genotype(bam_string,
                 else:
                     alt_straddle = fragment.is_pair_straddle(chromA, posA, ciA,
                                                              chromB, posB, ciB,
-                                                             o1_is_reverse, o2_is_reverse,
+                                                             o1_is_reverse,
+                                                             o2_is_reverse,
                                                              min_aligned,
                                                              fragment.lib)
 
@@ -359,7 +402,7 @@ def sv_genotype(bam_string,
                         if p_conc is not None:
                             p_alt = (1 - p_conc) * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
                             alt_span += p_alt
-
+                            
                             # # since an alt straddler is by definition also a reference straddler,
                             # # we can bail out early here to save some time
                             # p_reference = p_conc * prob_mapq(fragment.readA) * prob_mapq(fragment.readB)
@@ -405,17 +448,17 @@ def sv_genotype(bam_string,
                             write_fragment = True
 
                 # write to BAM if requested
-                if alignment_outpath is not None and  write_fragment:
+                if alignment_outpath is not None and write_fragment:
                     for read in fragment.primary_reads + [split.read for split in fragment.split_reads]:
                         out_bam_written_reads = write_alignment(read, out_bam, out_bam_written_reads)
 
             if debug:
-                print '--------------------------'
-                print 'ref_span:', ref_span
-                print 'alt_span:', alt_span
-                print 'ref_seq:', ref_seq
-                print 'alt_seq:', alt_seq
-                print 'alt_clip:', alt_clip
+                print('--------------------------')
+                print('ref_span:', ref_span)
+                print('alt_span:', alt_span)
+                print('ref_seq:', ref_seq)
+                print('alt_seq:', alt_seq)
+                print('alt_clip:', alt_clip)
 
             # in the absence of evidence for a particular type, ignore the reference
             # support for that type as well
@@ -440,12 +483,12 @@ def sv_genotype(bam_string,
                 QR = int(split_weight * ref_seq) + int(disc_weight * ref_span)
                 QA = int(split_weight * alt_splitters) + int(disc_weight * alt_span)
                 gt_lplist = bayes_gt(QR, QA, is_dup)
-                best, second_best = sorted([ (i, e) for i, e in enumerate(gt_lplist) ], key=lambda(x): x[1], reverse=True)[0:2]
+                best, second_best = sorted([ (i, e) for i, e in enumerate(gt_lplist) ], key=lambda x: x[1], reverse=True)[0:2]
                 gt_idx = best[0]
 
                 # print log probabilities of homref, het, homalt
                 if debug:
-                    print gt_lplist
+                    print(gt_lplist)
 
                 # set the overall variant QUAL score and sample specific fields
                 var.genotype(sample.name).set_format('GL', ','.join(['%.0f' % x for x in gt_lplist]))
@@ -464,7 +507,6 @@ def sv_genotype(bam_string,
                     var.genotype(sample.name).set_format('AB', '%.2g' % (QA / float(QR + QA)))
                 except ZeroDivisionError:
                     var.genotype(sample.name).set_format('AB', '.')
-
 
                 # assign genotypes
                 gt_sum = 0
@@ -529,6 +571,7 @@ def sv_genotype(bam_string,
 
     return
 
+
 def set_up_logging(verbose):
     level = logging.WARNING
     if verbose:
@@ -538,6 +581,7 @@ def set_up_logging(verbose):
 
 # --------------------------------------
 # main function
+
 
 def main():
     # parse the command line args
@@ -563,15 +607,16 @@ def main():
                 args.sum_quals,
                 args.max_reads)
 
+
 # --------------------------------------
 # command-line/console entrypoint
-
 def cli():
     try:
         sys.exit(main())
-    except IOError, e:
+    except IOError as e:
         if e.errno != 32:  # ignore SIGPIPE
             raise
+
 
 # initialize the script
 if __name__ == '__main__':

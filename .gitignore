@@ -38,3 +38,18 @@
 Icon?
 ehthumbs.db
 Thumbs.db
+
+# Python compiled files #
+#########################
+**__pycache__
+**.pyc
+.pytest_cache
+
+# Eggs #
+########
+.eggs
+svtyper.egg-info
+
+# Idea #
+########
+.idea

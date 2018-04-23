@@ -1,6 +1,8 @@
 
 from .context import singlesample as s
-import unittest, os, subprocess
+import unittest
+import os
+import subprocess
 
 HERE = os.path.dirname(__file__)
 in_vcf = os.path.join(HERE, "data/example.vcf")
@@ -9,7 +11,9 @@ lib_info_json = os.path.join(HERE, "data/NA12878.bam.json")
 out_vcf = os.path.join(HERE, "data/out.vcf")
 expected_out_vcf = os.path.join(HERE, "data/example.gt.vcf")
 
+
 class TestIntegration(unittest.TestCase):
+
     def setUp(self):
         pass
 
@@ -34,13 +38,16 @@ class TestIntegration(unittest.TestCase):
                            cores=None,
                            batch_size=1000)
 
-        fail_msg = "did not find output vcf '{}' after running sv_genotype".format(out_vcf)
+        fail_msg = "did not find output vcf '{}' after running sv_genotype".format(
+            out_vcf)
         self.assertTrue(os.path.exists(out_vcf), fail_msg)
 
         fail_msg = ("output vcf '{}' "
                     "did not match expected "
                     "output vcf '{}'").format(out_vcf, expected_out_vcf)
-        self.assertTrue(self.diff(), fail_msg)
+        if not self.diff():
+            exit(1)
+        #self.assertTrue(self.diff(), fail_msg)
 
     def test_parallel_integration(self):
         with open(in_vcf, "r") as inf, open(out_vcf, "w") as outf:
@@ -59,7 +66,8 @@ class TestIntegration(unittest.TestCase):
                            cores=1,
                            batch_size=1000)
 
-        fail_msg = "did not find output vcf '{}' after running sv_genotype".format(out_vcf)
+        fail_msg = "did not find output vcf '{}' after running sv_genotype".format(
+            out_vcf)
         self.assertTrue(os.path.exists(out_vcf), fail_msg)
 
         fail_msg = ("output vcf '{}' "

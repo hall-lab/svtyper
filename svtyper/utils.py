@@ -1,6 +1,14 @@
-from __future__ import print_function
 
-import sys, time, datetime, os, contextlib, tempfile, shutil, json, re
+
+import sys
+import time
+import datetime
+import os
+import contextlib
+import tempfile
+import shutil
+import json
+import re
 from functools import wraps
 
 from svtyper.parsers import SamFragment, Vcf
@@ -10,6 +18,8 @@ from svtyper.parsers import SamFragment, Vcf
 # ==================================================
 
 # write read to BAM file, checking whether read is already written
+
+
 def write_alignment(read, bam, written_reads, is_alt=None):
     read.query_sequence = None
     read_hash = (read.query_name, read.flag)
@@ -22,17 +32,19 @@ def write_alignment(read, bam, written_reads, is_alt=None):
         return written_reads
 
 # dump the sample and library info to a file
+
+
 def write_sample_json(sample_list, lib_info_file):
     lib_info = {}
     for sample in sample_list:
         s = {}
         s['sample_name'] = sample.name
-        s['bam'] = sample.bam.filename
+        s['bam'] = os.fsdecode(sample.bam.filename)
         s['libraryArray'] = []
         s['mapped'] = sample.bam.mapped
         s['unmapped'] = sample.bam.unmapped
 
-        for lib in sample.lib_dict.values():
+        for lib in list(sample.lib_dict.values()):
             l = {}
             l['library_name'] = lib.name
             l['readgroups'] = lib.readgroups
@@ -53,15 +65,20 @@ def write_sample_json(sample_list, lib_info_file):
 # ==================================================
 # Sorting Functions
 # ==================================================
+
+
 def sort_regions(region):
-    str_region = [ str(i) for i in region ]
+    str_region = [str(i) for i in region]
     key = '--'.join([str_region[i] for i in (0, 1, 3, 4)])
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', key)]
 
+
 def sort_reads(read):
-    attrs = ('reference_name', 'reference_start', 'reference_end', 'query_name')
+    attrs = ('reference_name', 'reference_start',
+             'reference_end', 'query_name')
     key = '--'.join([str(getattr(read, i)) for i in attrs])
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', key)]
+
 
 def sort_chroms(chrom):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', chrom)]
@@ -71,12 +88,15 @@ def sort_chroms(chrom):
 # ==================================================
 
 # get the non-phred-scaled mapq of a read
+
+
 def prob_mapq(read):
     return 1 - 10 ** (-read.mapping_quality / 10.0)
 
 # ==================================================
 # logging
 # ==================================================
+
 
 def logit(msg):
     ts = time.strftime("[ %Y-%m-%d %T ]", datetime.datetime.now().timetuple())
@@ -88,9 +108,11 @@ def logit(msg):
 # temporary directory handling
 # ==================================================
 
+
 def is_lsf_job():
     rv = 'LSB_JOBID' in os.environ
     return rv
+
 
 @contextlib.contextmanager
 def cd(newdir, cleanup=lambda: True):
@@ -101,6 +123,7 @@ def cd(newdir, cleanup=lambda: True):
     finally:
         os.chdir(prevdir)
         cleanup()
+
 
 @contextlib.contextmanager
 def tempdir():
@@ -127,6 +150,7 @@ def vcf_variants(vcf_file):
             if not line.startswith('#'):
                 yield line
 
+
 def vcf_headers(vcf_file):
     with open(vcf_file, 'r') as f:
         for line in f:
@@ -134,6 +158,7 @@ def vcf_headers(vcf_file):
                 yield line
             else:
                 break
+
 
 def vcf_samples(vcf_file):
     samples = []
@@ -147,5 +172,7 @@ def vcf_samples(vcf_file):
 # ==================================================
 # system helpers
 # ==================================================
+
+
 def die(msg):
     sys.exit(msg)

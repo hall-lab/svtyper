@@ -6,13 +6,15 @@ from collections import Counter
 # ==================================================
 
 # efficient combinatorial function to handle extremely large numbers
+
+
 def log_choose(n, k):
     r = 0.0
     # swap for efficiency if k is more than half of n
     if k * 2 > n:
         k = n - k
 
-    for  d in xrange(1,k+1):
+    for d in range(1, k + 1):
         r += math.log(n, 10)
         r -= math.log(d, 10)
         n -= 1
@@ -20,31 +22,41 @@ def log_choose(n, k):
     return r
 
 # return the genotype and log10 p-value
+
+
 def bayes_gt(ref, alt, is_dup):
-    # probability of seeing an alt read with true genotype of of hom_ref, het, hom_alt respectively
-    if is_dup: # specialized logic to handle non-destructive events such as duplications
-        p_alt = [1e-2, 0.2, 1/3.0]
+    # probability of seeing an alt read with true genotype of of hom_ref, het,
+    # hom_alt respectively
+    if is_dup:  # specialized logic to handle non-destructive events such as duplications
+        p_alt = [1e-2, 0.2, 1 / 3.0]
     else:
         p_alt = [1e-3, 0.5, 0.9]
 
     total = ref + alt
     log_combo = log_choose(total, alt)
 
-    lp_homref = log_combo + alt * math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
-    lp_het = log_combo + alt * math.log(p_alt[1], 10) + ref * math.log(1 - p_alt[1], 10)
-    lp_homalt = log_combo + alt * math.log(p_alt[2], 10) + ref * math.log(1 - p_alt[2], 10)
+    lp_homref = log_combo + alt * \
+        math.log(p_alt[0], 10) + ref * math.log(1 - p_alt[0], 10)
+    lp_het = log_combo + alt * \
+        math.log(p_alt[1], 10) + ref * math.log(1 - p_alt[1], 10)
+    lp_homalt = log_combo + alt * \
+        math.log(p_alt[2], 10) + ref * math.log(1 - p_alt[2], 10)
 
     return (lp_homref, lp_het, lp_homalt)
 
 # get the number of entries in the set
+
+
 def countRecords(myCounter):
     numRecords = sum(myCounter.values())
     return numRecords
 
 # median is approx 50th percentile, except when it is between
 # two values in which case it's the mean of them.
+
+
 def median(myCounter):
-    #length is the number of bases we're looking at
+    # length is the number of bases we're looking at
     numEntries = countRecords(myCounter)
 
     # the ordinal value of the middle element
@@ -75,6 +87,8 @@ def median(myCounter):
         return v
 
 # calculate upper median absolute deviation
+
+
 def upper_mad(myCounter, myMedian):
     residCounter = Counter()
     for x in myCounter:
@@ -83,6 +97,8 @@ def upper_mad(myCounter, myMedian):
     return median(residCounter)
 
 # sum of the entries
+
+
 def sumRecords(myCounter):
     mySum = 0.0
     for c in myCounter:
@@ -93,6 +109,8 @@ def sumRecords(myCounter):
 # length of the feature (chromosome or genome)
 # for x percentile, x% of the elements in the set are
 # <= the output value
+
+
 def mean(myCounter):
     # the number of total entries in the set is the
     # sum of the occurrences for each value
@@ -103,6 +121,7 @@ def mean(myCounter):
 
     u = sumRecords(myCounter) / numRecords
     return u
+
 
 def stdev(myCounter):
     # the number of total entries in the set is the
@@ -119,4 +138,3 @@ def stdev(myCounter):
     myVariance = float(sumVar) / numRecords
     stdev = myVariance**(0.5)
     return stdev
-

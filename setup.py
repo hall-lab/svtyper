@@ -23,7 +23,7 @@ setup(
     setup_requires=['pytest-runner'],
     tests_require=['pytest'],
     install_requires=[
-        'pysam>=0.12.0',
+        'pysam>=0.12',
         'numpy',
         'scipy',
         'cytoolz>=0.8.2',
@@ -41,6 +41,7 @@ setup(
         [console_scripts]
         svtyper=svtyper.classic:cli
         svtyper-sso=svtyper.singlesample:cli
+        svtyper-pms=svtyper.parallelsample:cli
     ''',
     packages=find_packages(exclude=('tests', 'etc')),
     include_package_data=True,
