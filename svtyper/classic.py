@@ -123,7 +123,8 @@ def sv_genotype(bam_string,
         if b.endswith('.bam'):
             bam_list.append(pysam.AlignmentFile(b, mode='rb'))
         elif b.endswith('.cram'):
-            bam_list.append(pysam.AlignmentFile(b, mode='rc', reference_filename=ref_fasta))
+            bam_list.append(pysam.AlignmentFile(b,
+                mode='rc',reference_filename=ref_fasta,format_options=["required_fields=7167"]))
         else:
             sys.stderr.write('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % b)
             exit(1)
@@ -236,8 +237,12 @@ def sv_genotype(bam_string,
                 posA = var.pos
                 posB = var2.pos
                 # confidence intervals
-                ciA = map(int, var.info['CIPOS'].split(','))
-                ciB = map(int, var2.info['CIPOS'].split(','))
+                if "CIPOS95" in var.info:
+                    ciA = map(int, var.info['CIPOS95'].split(','))
+                    ciB = map(int, var2.info['CIPOS95'].split(','))
+                else:
+                    ciA = map(int, var.info['CIPOS'].split(','))
+                    ciB = map(int, var2.info['CIPOS'].split(','))
 
                 # infer the strands from the alt allele
                 if var.alt[-1] == '[' or var.alt[-1] == ']':
@@ -259,8 +264,12 @@ def sv_genotype(bam_string,
             posA = var.pos
             posB = int(var.get_info('END'))
             # confidence intervals
-            ciA = map(int, var.info['CIPOS'].split(','))
-            ciB = map(int, var.info['CIEND'].split(','))
+            if "CIPOS95" in var.info:
+                ciA = map(int, var.info['CIPOS95'].split(','))
+                ciB = map(int, var.info['CIEND95'].split(','))
+            else:
+                ciA = map(int, var.info['CIPOS'].split(','))
+                ciB = map(int, var.info['CIEND'].split(','))
             if svtype == 'DEL':
                 var_length = posB - posA
                 o1_is_reverse, o2_is_reverse =  False, True
