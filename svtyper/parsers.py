@@ -717,6 +717,9 @@ class Sample(object):
 # from a single molecule
 # ==================================================
 
+def rhash(r):
+    return hash((r.query_name, r.flag))
+
 class SamFragment(object):
     def __init__(self, read, lib):
         self.lib = lib
@@ -738,7 +741,7 @@ class SamFragment(object):
 
     def add_read(self, read):
         # ensure we don't add the same read twice
-        read_hash = read.__hash__()
+        read_hash = rhash(read)
         if read_hash in self.read_set:
             return
         else:
