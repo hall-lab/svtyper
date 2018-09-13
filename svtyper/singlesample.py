@@ -5,7 +5,7 @@ import multiprocessing as mp
 from cytoolz.itertoolz import partition_all
 
 import svtyper.version
-from svtyper.parsers import Vcf, Variant, Sample, SamFragment
+from svtyper.parsers import Vcf, Variant, Sample, SamFragment, confidence_interval
 from svtyper.utils import die, logit, prob_mapq, write_sample_json, tempdir, vcf_headers, vcf_variants, vcf_samples
 from svtyper.statistics import bayes_gt
 
@@ -28,6 +28,7 @@ description: Compute genotype of structural variants based on breakpoint depth o
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('-q', '--sum_quals', action='store_true', required=False, help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
     parser.add_argument('--max_reads', metavar='INT', type=int, default=1000, required=False, help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions, default: 1000)')
+    parser.add_argument('--max_ci_dist', metavar='INT', type=int, default=1e10, required=False, help='maximum size of a confidence interval before 95% CI is used intead (default: 1e10)')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
@@ -123,14 +124,14 @@ def init_vcf(vcffile, sample, scratchdir):
     v.add_sample(sample.name)
     return v
 
-def collect_breakpoints(vcf):
+def collect_breakpoints(vcf, max_ci_dist):
     breakpoints = []
     for vline in vcf_variants(vcf.filename):
         v = vline.rstrip().split('\t')
         variant = Variant(v, vcf)
         if not variant.has_svtype(): continue
         if not variant.is_valid_svtype(): continue
-        brkpts = vcf.get_variant_breakpoints(variant)
+        brkpts = vcf.get_variant_breakpoints(variant, max_ci_dist)
         if brkpts is None: continue
         breakpoints.append(brkpts)
     return breakpoints
@@ -573,7 +574,7 @@ def assign_genotype_to_variant(variant, sample, genotype_result):
         variant.genotype(sample.name).set_format('AB',  outcome['formats']['AB'])
     return variant
 
-def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug):
+def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, max_ci_dist, debug):
     # initializations
     bnd_cache = {}
     src_vcf.write_header(out_vcf)
@@ -607,7 +608,7 @@ def genotype_serial(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_qu
             variant.write(out_vcf)
             continue
 
-        breakpoints = src_vcf.get_variant_breakpoints(variant)
+        breakpoints = src_vcf.get_variant_breakpoints(variant, max_ci_dist)
 
         # special BND processing
         if variant.get_svtype() == 'BND':
@@ -706,7 +707,7 @@ def apply_genotypes_to_vcf(src_vcf, out_vcf, genotypes, sample, sum_quals):
             variant2.genotype = variant.genotype
             variant2.write(out_vcf)
 
-def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, breakpoint_batch_size, ref_fasta):
+def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, max_ci_dist, debug, cores, breakpoint_batch_size, ref_fasta):
 
     # cleanup unused library attributes
     for rg in sample.rg_to_lib:
@@ -714,7 +715,7 @@ def genotype_parallel(src_vcf, out_vcf, sample, z, split_slop, min_aligned, sum_
 
     # 1st pass through input vcf -- collect all the relevant breakpoints
     logit("Collecting breakpoints")
-    breakpoints = collect_breakpoints(src_vcf)
+    breakpoints = collect_breakpoints(src_vcf, max_ci_dist)
     logit("Number of breakpoints/SVs to process: {}".format(len(breakpoints)))
     logit("Collecting regions")
     regions = [ get_breakpoint_regions(b, sample, z) for b in breakpoints ]
@@ -772,6 +773,7 @@ def sso_genotype(bam_string,
                  ref_fasta,
                  sum_quals,
                  max_reads,
+                 max_ci_dist,
                  cores,
                  batch_size):
 
@@ -802,11 +804,11 @@ def sso_genotype(bam_string,
         if cores is None:
             logit("Genotyping Input VCF (Serial Mode)")
             # pass through input vcf -- perform actual genotyping
-            genotype_serial(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug)
+            genotype_serial(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, max_ci_dist, debug)
         else:
             logit("Genotyping Input VCF (Parallel Mode)")
 
-            genotype_parallel(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, debug, cores, batch_size, ref_fasta)
+            genotype_parallel(src_vcf, vcf_out, sample, z, split_slop, min_aligned, sum_quals, split_weight, disc_weight, max_reads, max_ci_dist, debug, cores, batch_size, ref_fasta)
 
 
     sample.close()
@@ -834,6 +836,7 @@ def main():
                  args.ref_fasta,
                  args.sum_quals,
                  args.max_reads,
+                 args.max_ci_dist,
                  args.cores,
                  args.batch_size)
 

@@ -31,6 +31,7 @@ class TestIntegration(unittest.TestCase):
                            ref_fasta=None,
                            sum_quals=False,
                            max_reads=1000,
+                           max_ci_dist=1e10,
                            cores=None,
                            batch_size=1000)
 
@@ -56,6 +57,7 @@ class TestIntegration(unittest.TestCase):
                            ref_fasta=None,
                            sum_quals=False,
                            max_reads=1000,
+                           max_ci_dist=1e10,
                            cores=1,
                            batch_size=1000)
 
