@@ -28,7 +28,7 @@ description: Compute genotype of structural variants based on breakpoint depth o
     parser.add_argument('-n', dest='num_samp', metavar='INT', type=int, required=False, default=1000000, help='number of reads to sample from BAM file for building insert size distribution [1000000]')
     parser.add_argument('-q', '--sum_quals', action='store_true', required=False, help='add genotyping quality to existing QUAL (default: overwrite QUAL field)')
     parser.add_argument('--max_reads', metavar='INT', type=int, default=1000, required=False, help='maximum number of reads to assess at any variant (reduces processing time in high-depth regions, default: 1000)')
-    parser.add_argument('--max_ci_dist', metavar='INT', type=int, default=1e10, required=False, help='maximum size of a confidence interval before 95% CI is used intead (default: 1e10)')
+    parser.add_argument('--max_ci_dist', metavar='INT', type=int, default=1e10, required=False, help='maximum size of a confidence interval before 95%% CI is used intead (default: 1e10)')
     parser.add_argument('--split_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for split reads [1]')
     parser.add_argument('--disc_weight', metavar='FLOAT', type=float, required=False, default=1, help='weight for discordant paired-end reads [1]')
     parser.add_argument('--debug', action='store_true', help=argparse.SUPPRESS)
