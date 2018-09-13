@@ -125,7 +125,8 @@ def sv_genotype(bam_string,
         if b.endswith('.bam'):
             bam_list.append(pysam.AlignmentFile(b, mode='rb'))
         elif b.endswith('.cram'):
-            bam_list.append(pysam.AlignmentFile(b, mode='rc', reference_filename=ref_fasta))
+            bam_list.append(pysam.AlignmentFile(b,
+                mode='rc',reference_filename=ref_fasta,format_options=["required_fields=7167"]))
         else:
             sys.stderr.write('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % b)
             exit(1)
