@@ -5,9 +5,6 @@ from setuptools import setup, find_packages
 with open('README.md') as f:
     readme = f.read()
 
-with open('LICENSE') as f:
-    license = f.read()
-
 with open('svtyper/version.py') as f:
     exec(f.read())
 
@@ -16,9 +13,10 @@ setup(
     version=__version__,
     description='Bayesian genotyper for structural variants',
     long_description=readme,
+    long_description_content_type='text/markdown',
     author=__author__,
     author_email='colbychiang@wustl.edu',
-    license=license,
+    license='MIT License',
     url='https://github.com/hall-lab/svtyper',
     setup_requires=['pytest-runner'],
     tests_require=['pytest==4.6.4'],
