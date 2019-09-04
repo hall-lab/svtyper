@@ -53,15 +53,15 @@ class Vcf(object):
             elif line.split('=')[0] == '##reference':
                 self.reference = line.rstrip().split('=')[1]
             elif line.split('=')[0] == '##INFO':
-                a = line[line.find('<')+1:line.find('>')]
+                a = line[line.find('<')+1:line.rfind('>')]
                 r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
                 self.add_info(*[b.split('=')[1] for b in r.findall(a)])
             elif line.split('=')[0] == '##ALT':
-                a = line[line.find('<')+1:line.find('>')]
+                a = line[line.find('<')+1:line.rfind('>')]
                 r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
                 self.add_alt(*[b.split('=')[1] for b in r.findall(a)])
             elif line.split('=')[0] == '##FORMAT':
-                a = line[line.find('<')+1:line.find('>')]
+                a = line[line.find('<')+1:line.rfind('>')]
                 r = re.compile(r'(?:[^,\"]|\"[^\"]*\")+')
                 self.add_format(*[b.split('=')[1] for b in r.findall(a)])
             elif line[0] == '#' and line[1] != '#':
