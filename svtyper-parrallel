@@ -1,0 +1,37 @@
+#!/bin/bash
+
+if [ $# -lt 3 ];
+then
+    echo "usage: $0 [ncpus] [regions file] [bamlist] [input_vcf] [svtyper arguments]"
+    echo
+    echo "Run svtyper in parallel for SVs in input_vcf called on the samples in bamlist over regions "
+    echo "listed in regions file, using ncpus processors. Will merge and sort output, producing a"
+    echo "uniform VCF stream on stdout.  Flags to svtyper which would write to e.g. a particular"
+    echo "file will obviously cause probelms, so caution is encouraged when using this script."
+    echo
+    echo "ncpus         should be an integer"
+    echo "regions file  should contain coma separated regions"
+    echo "                chr|chr:pos|chr:from-to|chr:from-[,…]"
+    echo "bamlist       coma separated bamfilenames"
+    echo "input_vcf     the output of lumpy"
+
+    echo
+    echo "example:"
+    echo
+    echo "    svtyper-parallel 36 regions.txt $(ls sample*.bam | paste -sd",") samples.vcf > out.vcf"
+    echo
+    echo "Author: ikkextoch, also known as dvdleest"
+    echo "please report bugs to douwevanderleest@gmail.com"
+    exit
+fi
+
+ncpus=$1
+regionsfile=$2
+bamlist=$3
+input_vcf=$4
+shift 4
+
+(cat "$regionsfile" | parallel -k -j "$ncpus" "bcftools view --regions" {} "$input_vcf | svtyper -B $bamlist $@") | \
+    vcffirstheader | \
+    vcfstreamsort -w 1000 | \
+    vcfuniq # remove duplicates at region edges
