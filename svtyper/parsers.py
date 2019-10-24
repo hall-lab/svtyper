@@ -3,15 +3,16 @@ from __future__ import print_function
 import time, re, json, sys
 from collections import Counter
 
-from svtyper.statistics import mean, stdev, median, upper_mad
+from svtyper.statistics import mean, stdev, median, upper_mad, xrange
+
 
 # ==================================================
 # VCF parsing tools
 # ==================================================
 def confidence_interval(var, tag, alt_tag, max_ci_dist):
-    ci = map(int, var.info[tag].split(','))
+    ci = list(map(int, var.info[tag].split(',')))
     if ci[1] - ci[0] > max_ci_dist:
-        return map(int, var.info[alt_tag].split(','))
+        return list(map(int, var.info[alt_tag].split(',')))
     return ci
 
 
@@ -480,7 +481,7 @@ class Library(object):
         for r in bam.header['RG']:
             try:
                 in_lib = r['LB'] == lib_name
-            except KeyError, e:
+            except KeyError as e:
                 in_lib = lib_name == ''
 
             if in_lib:
@@ -520,8 +521,10 @@ class Library(object):
         for read in self.bam.fetch():
             if read.get_tag('RG') not in self.readgroups:
                 continue
-            if read.infer_query_length() > max_rl:
-                max_rl = read.infer_query_length()
+            rl = read.infer_query_length()
+            if rl is None: continue
+            if rl > max_rl:
+                max_rl = rl
             if counter == num_samp:
                 break
             counter += 1
@@ -669,7 +672,7 @@ class Sample(object):
         for r in bam.header['RG']:
             try:
                 lib_name=r['LB']
-            except KeyError, e:
+            except KeyError as e:
                 lib_name=''
 
             # add the new library
@@ -877,7 +880,7 @@ class SamFragment(object):
         try:
             p = float(self.lib.dens[ospan_length]) * conc_prior / (conc_prior * self.lib.dens[ospan_length] + disc_prior * (self.lib.dens[ospan_length - var_length]))
         except ZeroDivisionError:
-            p = None
+            return False
 
         return p > 0.5
 

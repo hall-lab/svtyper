@@ -47,17 +47,33 @@ description: Compute genotype of structural variants based on breakpoint depth o
     return args
 
 def ensure_valid_alignment_file(afile):
-    if not (afile.endswith('.bam') or afile.endswith('.cram')):
-        die('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % afile)
+    print(afile.__class__.__name__, file=sys.stderr)
+    if not isinstance(afile, str):
+        afile = afile.decode()
+
+    try:
+        if not (afile.endswith('.bam') or afile.endswith('.cram')):
+            die('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % afile)
+    except TypeError:
+        if not (afile.endswith(b'.bam') or afile.endswith(b'.cram')):
+            die('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % afile)
 
 def open_alignment_file(afile, reference_fasta):
     fd = None
-    if afile.endswith('.bam'):
-        fd = pysam.AlignmentFile(afile, mode='rb')
-    elif afile.endswith('.cram'):
-        fd = pysam.AlignmentFile(afile, mode='rc', reference_filename=reference_fasta)
-    else:
-        die('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % afile)
+    try:
+        if afile.endswith('.bam'):
+            fd = pysam.AlignmentFile(afile, mode='rb')
+        elif afile.endswith('.cram'):
+            fd = pysam.AlignmentFile(afile, mode='rc', reference_filename=reference_fasta)
+        else:
+            die('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % afile)
+    except TypeError:
+        if afile.endswith(b'.bam'):
+            fd = pysam.AlignmentFile(afile, mode='rb')
+        elif afile.endswith(b'.cram'):
+            fd = pysam.AlignmentFile(afile, mode='rc', reference_filename=reference_fasta)
+        else:
+            die('Error: %s is not a valid alignment file (*.bam or *.cram)\n' % afile)
 
     return fd
 
@@ -417,7 +433,7 @@ def bayesian_genotype(breakpoint, counts, split_weight, disc_weight, debug):
 
     # the actual bayesian calculation and decision
     gt_lplist = bayes_gt(QR, QA, is_dup)
-    best, second_best = sorted([ (i, e) for i, e in enumerate(gt_lplist) ], key=lambda(x): x[1], reverse=True)[0:2]
+    best, second_best = sorted([ (i, e) for i, e in enumerate(gt_lplist) ], key=lambda x: x[1], reverse=True)[0:2]
     gt_idx = best[0]
 
     # print log probabilities of homref, het, homalt
@@ -846,7 +862,7 @@ def main():
 def cli():
     try:
         sys.exit(main())
-    except IOError, e:
+    except IOError as e:
         if e.errno != 32:  # ignore SIGPIPE
             raise
 

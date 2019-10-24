@@ -47,6 +47,10 @@ def write_sample_json(sample_list, lib_info_file):
         lib_info[sample.name] = s
 
     # write the json file
+    for k, sample in lib_info.items():
+        if isinstance(sample["bam"], bytes):
+            lib_info[k]["bam"] = sample["bam"].decode()
+
     json.dump(lib_info, lib_info_file, indent=4)
     lib_info_file.close()
 

@@ -1,6 +1,11 @@
 import math
 from collections import Counter
 
+try:
+    xrange
+except NameError:
+    xrange = range
+
 # ==================================================
 # Statistical tools
 # ==================================================
